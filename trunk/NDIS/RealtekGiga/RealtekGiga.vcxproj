@@ -1,0 +1,388 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release_Win7i386Drv|Win32">
+      <Configuration>Release_Win7i386Drv</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release_Win7i386Drv|x64">
+      <Configuration>Release_Win7i386Drv</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release_Win7x64Drv|Win32">
+      <Configuration>Release_Win7x64Drv</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release_Win7x64Drv|x64">
+      <Configuration>Release_Win7x64Drv</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{C779822F-2DBE-4583-B8D0-31BA856CC1FA}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <RootNamespace>RealtekGiga</RootNamespace>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release_Win7x64Drv|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <WholeProgramOptimization>false</WholeProgramOptimization>
+    <CharacterSet>NotSet</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release_Win7i386Drv|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <WholeProgramOptimization>false</WholeProgramOptimization>
+    <CharacterSet>NotSet</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release_Win7x64Drv|Win32'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release_Win7i386Drv|Win32'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <LinkIncremental>true</LinkIncremental>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release_Win7x64Drv|Win32'">
+    <LinkIncremental>false</LinkIncremental>
+    <IgnoreImportLibrary>true</IgnoreImportLibrary>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release_Win7i386Drv|Win32'">
+    <LinkIncremental>false</LinkIncremental>
+    <IgnoreImportLibrary>true</IgnoreImportLibrary>
+    <TargetExt>.sys</TargetExt>
+    <GenerateManifest />
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release_Win7x64Drv|x64'">
+    <LinkIncremental>false</LinkIncremental>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release_Win7i386Drv|x64'">
+    <LinkIncremental>false</LinkIncremental>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release_Win7x64Drv|x64'">
+    <IgnoreImportLibrary>true</IgnoreImportLibrary>
+    <TargetExt>.sys</TargetExt>
+    <GenerateManifest />
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release_Win7i386Drv|x64'">
+    <IgnoreImportLibrary>true</IgnoreImportLibrary>
+    <TargetExt>.sys</TargetExt>
+    <GenerateManifest />
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ClCompile>
+      <PrecompiledHeader>
+      </PrecompiledHeader>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release_Win7x64Drv|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <PrecompiledHeader>
+      </PrecompiledHeader>
+      <Optimization>Disabled</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <PreprocessorDefinitions>_WIN64;_AMD64_;AMD64;CONDITION_HANDLING=1;NT_UP=1;NT_INST=0;WIN32=100;_NT1X_=100;WINNT=1;_WIN32_WINNT=0x0601;WINVER=0x0601;_WIN32_IE=0x0800;WIN32_LEAN_AND_MEAN=1;DEVL=1;__BUILDMACHINE__=WinDDK;NDEBUG;_DLL=1;NDIS_MINIPORT_DRIVER;NDIS60_MINIPORT=1;BINARY_COMPATIBLE=0;NTDDI_VERSION=0x06010000</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(BASEWDK7)\inc\api;$(BASEWDK7)\inc\ddk;$(BASEWDK7)\inc\crt</AdditionalIncludeDirectories>
+      <StringPooling>true</StringPooling>
+      <StructMemberAlignment>8Bytes</StructMemberAlignment>
+      <ForceConformanceInForLoopScope>false</ForceConformanceInForLoopScope>
+      <RuntimeTypeInfo>false</RuntimeTypeInfo>
+      <CallingConvention>StdCall</CallingConvention>
+      <CompileAs>Default</CompileAs>
+      <TreatWarningAsError>false</TreatWarningAsError>
+      <AdditionalOptions>-cbstring /EHs-c- /wd4603 /wd4627</AdditionalOptions>
+      <ExceptionHandling>false</ExceptionHandling>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <ForcedIncludeFiles>$(BASEWDK7)\inc\\api\warning.h;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <Link>
+      <SubSystem>Native</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <OutputFile>$(OutDir)$(TargetName).sys</OutputFile>
+      <AdditionalLibraryDirectories>$(BASEWDK7)\lib\win7\amd64</AdditionalLibraryDirectories>
+      <AdditionalDependencies>BufferOverflowK.lib;ntoskrnl.lib;hal.lib;wmilib.lib;ndis.lib</AdditionalDependencies>
+      <Driver>Driver</Driver>
+      <EntryPointSymbol>DriverEntry</EntryPointSymbol>
+    </Link>
+    <ProjectReference>
+      <LinkLibraryDependencies>true</LinkLibraryDependencies>
+    </ProjectReference>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release_Win7i386Drv|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <PrecompiledHeader>
+      </PrecompiledHeader>
+      <Optimization>Disabled</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <PreprocessorDefinitions>_X86_=1;i386=1;STD_CALL;CONDITION_HANDLING=1;NT_UP=1;NT_INST=0;WIN32=100;_NT1X_=100;WINNT=1;_WIN32_WINNT=0x0601;WINVER=0x0601;_WIN32_IE=0x0800;WIN32_LEAN_AND_MEAN=1;DEVL=1;__BUILDMACHINE__=WinDDK;FPO=0;NDEBUG;_DLL=1;NDIS_MINIPORT_DRIVER;NDIS60_MINIPORT=1;BINARY_COMPATIBLE=0;NTDDI_VERSION=0x06010000;KMDF_MAJOR_VERSION_STRING=01;KMDF_MINOR_VERSION_STRING=009</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(BASEWDK7)\inc\api;$(BASEWDK7)\inc\ddk;$(BASEWDK7)\inc\crt</AdditionalIncludeDirectories>
+      <StringPooling>true</StringPooling>
+      <StructMemberAlignment>8Bytes</StructMemberAlignment>
+      <ForceConformanceInForLoopScope>false</ForceConformanceInForLoopScope>
+      <RuntimeTypeInfo>false</RuntimeTypeInfo>
+      <CallingConvention>StdCall</CallingConvention>
+      <CompileAs>Default</CompileAs>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <AdditionalOptions>-cbstring /EHs-c- /typedil-</AdditionalOptions>
+      <ExceptionHandling>
+      </ExceptionHandling>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <ForcedIncludeFiles>$(BASEWDK7)\inc\\api\warning.h</ForcedIncludeFiles>
+      <CreateHotpatchableImage>true</CreateHotpatchableImage>
+      <DisableSpecificWarnings>4603; 4627</DisableSpecificWarnings>
+      <IgnoreStandardIncludePath>true</IgnoreStandardIncludePath>
+    </ClCompile>
+    <Link>
+      <SubSystem>Native</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <OutputFile>$(OutDir)$(TargetName).sys</OutputFile>
+      <AdditionalLibraryDirectories>$(BASEWDK7)\lib\win7\i386</AdditionalLibraryDirectories>
+      <AdditionalDependencies>BufferOverflowK.lib;ntoskrnl.lib;hal.lib;wmilib.lib;ndis.lib</AdditionalDependencies>
+      <Driver>Driver</Driver>
+      <EntryPointSymbol>GsDriverEntry </EntryPointSymbol>
+      <Version>6.1</Version>
+      <IgnoreAllDefaultLibraries>true</IgnoreAllDefaultLibraries>
+      <ManifestFile>
+      </ManifestFile>
+      <AllowIsolation>
+      </AllowIsolation>
+      <EnableUAC>
+      </EnableUAC>
+      <UACExecutionLevel>
+      </UACExecutionLevel>
+      <UACUIAccess>
+      </UACUIAccess>
+      <MinimumRequiredVersion>6.01</MinimumRequiredVersion>
+      <StackReserveSize>0x40000</StackReserveSize>
+      <StackCommitSize>0x1000</StackCommitSize>
+      <ProfileGuidedDatabase>
+      </ProfileGuidedDatabase>
+      <SetChecksum>true</SetChecksum>
+      <RandomizedBaseAddress>
+      </RandomizedBaseAddress>
+      <BaseAddress>0x10000</BaseAddress>
+      <DataExecutionPrevention>
+      </DataExecutionPrevention>
+      <MergeSections>_PAGE=PAGE;_TEXT=.text</MergeSections>
+      <LinkErrorReporting>
+      </LinkErrorReporting>
+      <AdditionalOptions>/SECTION:INIT,d /IGNORE:4198,4010,4037,4039,4065,4070,4078,4087,4089,4221,4108,4088,4218,4218,4235 /WX /debugtype:cv,fixup,pdata /osversion:6.1 /functionpadmin:6 /safeseh /pdbcompress %(AdditionalOptions)</AdditionalOptions>
+    </Link>
+    <ProjectReference>
+      <LinkLibraryDependencies>true</LinkLibraryDependencies>
+    </ProjectReference>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release_Win7x64Drv|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(BASEWDK7)\inc\api;$(BASEWDK7)\inc\ddk;$(BASEWDK7)\inc\crt</AdditionalIncludeDirectories>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release_Win7i386Drv|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(BASEWDK7)\inc\api;$(BASEWDK7)\inc\ddk;$(BASEWDK7)\inc\crt</AdditionalIncludeDirectories>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release_Win7x64Drv|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release_Win7i386Drv|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release_Win7x64Drv|x64'">
+    <ClCompile>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <Optimization>Disabled</Optimization>
+      <PreprocessorDefinitions>_WIN64;_AMD64_;AMD64;CONDITION_HANDLING=1;NT_UP=1;NT_INST=0;WIN32=100;_NT1X_=100;WINNT=1;_WIN32_WINNT=0x0601;WINVER=0x0601;_WIN32_IE=0x0800;WIN32_LEAN_AND_MEAN=1;DEVL=1;__BUILDMACHINE__=WinDDK;NDEBUG;_DLL=1;NDIS_MINIPORT_DRIVER;NDIS60_MINIPORT=1;BINARY_COMPATIBLE=0;NTDDI_VERSION=0x06010000</PreprocessorDefinitions>
+      <IgnoreStandardIncludePath>true</IgnoreStandardIncludePath>
+      <StringPooling>true</StringPooling>
+      <ExceptionHandling>false</ExceptionHandling>
+      <CallingConvention>StdCall</CallingConvention>
+      <DisableSpecificWarnings>4603;4627</DisableSpecificWarnings>
+      <ForcedIncludeFiles>$(BASEWDK7)\inc\api\warning.h;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <AdditionalOptions>/EHs-c- %(AdditionalOptions)</AdditionalOptions>
+      <PrecompiledHeader>
+      </PrecompiledHeader>
+      <PrecompiledHeaderFile>
+      </PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile>
+      </PrecompiledHeaderOutputFile>
+    </ClCompile>
+    <Link />
+    <Link>
+      <AdditionalLibraryDirectories>$(BASEWDK7)\lib\win7\amd64</AdditionalLibraryDirectories>
+      <AdditionalDependencies>BufferOverflowK.lib;ntoskrnl.lib;hal.lib;wmilib.lib;ndis.lib</AdditionalDependencies>
+      <IgnoreAllDefaultLibraries>true</IgnoreAllDefaultLibraries>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <SubSystem>Native</SubSystem>
+      <Driver>Driver</Driver>
+      <EntryPointSymbol>GsDriverEntry </EntryPointSymbol>
+      <AdditionalOptions>/SECTION:INIT,d /IGNORE:4198,4010,4037,4039,4065,4070,4078,4087,4089,4221,4108,4088,4218,4218,4235 /WX /debugtype:cv,fixup,pdata /osversion:6.1 $(BASEWDK7)\lib\win7\amd64\hotpatch.obj /functionpadmin:6 /pdbcompress</AdditionalOptions>
+      <EnableUAC>
+      </EnableUAC>
+      <BaseAddress>0x10000</BaseAddress>
+      <RandomizedBaseAddress>
+      </RandomizedBaseAddress>
+      <FixedBaseAddress>
+      </FixedBaseAddress>
+      <MinimumRequiredVersion>6.01</MinimumRequiredVersion>
+      <StackReserveSize>0x40000</StackReserveSize>
+      <StackCommitSize>0x1000</StackCommitSize>
+      <DataExecutionPrevention>
+      </DataExecutionPrevention>
+      <ManifestFile>
+      </ManifestFile>
+      <AllowIsolation>
+      </AllowIsolation>
+      <UACExecutionLevel>
+      </UACExecutionLevel>
+      <UACUIAccess>
+      </UACUIAccess>
+      <MergeSections>_PAGE=PAGE;_TEXT=.text</MergeSections>
+      <OptimizeReferences>true</OptimizeReferences>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <ProfileGuidedDatabase>
+      </ProfileGuidedDatabase>
+      <SetChecksum>true</SetChecksum>
+      <Version>6.1</Version>
+    </Link>
+    <ProjectReference>
+      <UseLibraryDependencyInputs>false</UseLibraryDependencyInputs>
+    </ProjectReference>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release_Win7i386Drv|x64'">
+    <ClCompile>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <Optimization>Disabled</Optimization>
+      <PreprocessorDefinitions>_WIN64;_AMD64_;AMD64;CONDITION_HANDLING=1;NT_UP=1;NT_INST=0;WIN32=100;_NT1X_=100;WINNT=1;_WIN32_WINNT=0x0601;WINVER=0x0601;_WIN32_IE=0x0800;WIN32_LEAN_AND_MEAN=1;DEVL=1;__BUILDMACHINE__=WinDDK;NDEBUG;_DLL=1;NDIS_MINIPORT_DRIVER;NDIS60_MINIPORT=1;BINARY_COMPATIBLE=0;NTDDI_VERSION=0x06010000;KMDF_MAJOR_VERSION_STRING=01;KMDF_MINOR_VERSION_STRING=009</PreprocessorDefinitions>
+      <IgnoreStandardIncludePath>true</IgnoreStandardIncludePath>
+      <StringPooling>true</StringPooling>
+      <ExceptionHandling>
+      </ExceptionHandling>
+      <CallingConvention>StdCall</CallingConvention>
+      <DisableSpecificWarnings>4603;4627</DisableSpecificWarnings>
+      <ForcedIncludeFiles>$(BASEWDK7)\inc\api\warning.h</ForcedIncludeFiles>
+      <AdditionalOptions>-cbstring /EHs-c- /typedil- %(AdditionalOptions)</AdditionalOptions>
+      <PrecompiledHeader>
+      </PrecompiledHeader>
+      <PrecompiledHeaderFile>
+      </PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile>
+      </PrecompiledHeaderOutputFile>
+      <CreateHotpatchableImage>true</CreateHotpatchableImage>
+    </ClCompile>
+    <Link />
+    <Link>
+      <AdditionalLibraryDirectories>$(BASEWDK7)\lib\win7\amd64</AdditionalLibraryDirectories>
+      <AdditionalDependencies>BufferOverflowK.lib;ntoskrnl.lib;hal.lib;wmilib.lib;ndis.lib</AdditionalDependencies>
+      <IgnoreAllDefaultLibraries>true</IgnoreAllDefaultLibraries>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <SubSystem>Native</SubSystem>
+      <Driver>Driver</Driver>
+      <EntryPointSymbol>GsDriverEntry </EntryPointSymbol>
+      <AdditionalOptions>/SECTION:INIT,d /IGNORE:4198,4010,4037,4039,4065,4070,4078,4087,4089,4221,4108,4088,4218,4218,4235 /WX /debugtype:cv,fixup,pdata /osversion:6.1 $(BASEWDK7)\lib\win7\amd64\hotpatch.obj /functionpadmin:6 /pdbcompress</AdditionalOptions>
+      <EnableUAC>
+      </EnableUAC>
+      <BaseAddress>0x10000</BaseAddress>
+      <RandomizedBaseAddress>
+      </RandomizedBaseAddress>
+      <FixedBaseAddress>
+      </FixedBaseAddress>
+      <MinimumRequiredVersion>6.01</MinimumRequiredVersion>
+      <StackReserveSize>0x40000</StackReserveSize>
+      <StackCommitSize>0x1000</StackCommitSize>
+      <DataExecutionPrevention>
+      </DataExecutionPrevention>
+      <ManifestFile>
+      </ManifestFile>
+      <AllowIsolation>
+      </AllowIsolation>
+      <UACExecutionLevel>
+      </UACExecutionLevel>
+      <UACUIAccess>
+      </UACUIAccess>
+      <MergeSections>_PAGE=PAGE;_TEXT=.text</MergeSections>
+      <OptimizeReferences>true</OptimizeReferences>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <ProfileGuidedDatabase>
+      </ProfileGuidedDatabase>
+      <SetChecksum>true</SetChecksum>
+      <Version>6.1</Version>
+      <LinkErrorReporting>
+      </LinkErrorReporting>
+    </Link>
+    <ProjectReference>
+      <UseLibraryDependencyInputs>false</UseLibraryDependencyInputs>
+    </ProjectReference>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <None Include="ReadMe.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="linux_h.h" />
+    <ClInclude Include="mp.h" />
+    <ClInclude Include="mp_cmn.h" />
+    <ClInclude Include="mp_dbg.h" />
+    <ClInclude Include="mp_def.h" />
+    <ClInclude Include="mp_nic.h" />
+    <ClInclude Include="precomp.h" />
+    <ClInclude Include="recvnew.h" />
+    <ClInclude Include="rltk_1g.h" />
+    <ClInclude Include="rltk_equ.h" />
+    <ClInclude Include="rltk_sup.h" />
+    <ClInclude Include="targetver.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="linux.init.c" />
+    <ClCompile Include="mp_dbg.c" />
+    <ClCompile Include="mp_init.c" />
+    <ClCompile Include="mp_main.c" />
+    <ClCompile Include="mp_nic.c" />
+    <ClCompile Include="mp_req.c" />
+    <ClCompile Include="recvnew.c" />
+    <ClCompile Include="routines.c" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>
