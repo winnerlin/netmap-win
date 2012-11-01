@@ -1,0 +1,99 @@
+; NO copyright copyLEFT freeware 
+; 
+[version]
+Signature   	= "$Chicago$"
+Class       	= Net
+ClassGUID   	= {4d36e972-e325-11ce-bfc1-08002be10318}
+Provider   		= %Driware%
+Compatible  	= 1
+DriverVer		= 03/13/2008,6.0.6000.031308
+
+[Manufacturer]
+%Driware%     = Driware,NTx86,NTia64,NTamd64
+
+[Driware.NTx86]
+; DisplayName           Section       DeviceID					Compatible ID
+; -----------           -------       --------
+%RLTKGBIT.DeviceDesc%  = RLTKGBIT.ndi,    PCI\VEN_10EC&DEV_8168 , PCI\VEN_10EC&DEV_8169, PCI\VEN_10EC&DEV_8110, PCI\VEN_10EC&DEV_8111   
+
+[Driware.NTia64]
+; DisplayName           Section       DeviceID
+; -----------           -------       --------
+%RLTKGBIT.DeviceDesc%  = RLTKGBIT.ndi,    PCI\VEN_10EC&DEV_8168 , PCI\VEN_10EC&DEV_8169, PCI\VEN_10EC&DEV_8110, PCI\VEN_10EC&DEV_8111   
+
+[Driware.NTamd64]
+; DisplayName           Section       DeviceID
+; -----------           -------       --------
+%RLTKGBIT.DeviceDesc%  = RLTKGBIT.ndi,    PCI\VEN_10EC&DEV_8168 , PCI\VEN_10EC&DEV_8169, PCI\VEN_10EC&DEV_8110, PCI\VEN_10EC&DEV_8111   
+
+; Realtek 8168/8111/8169 and compatible Ethernet controllers
+;
+; Windows NT specific entry
+[RLTKGBIT.ndi.NT]
+Characteristics = 0x84
+BusType         = 5
+AddReg          = RLTKGBIT.reg
+CopyFiles       = RLTKGBIT.CopyFiles
+*IfType         = 6		; IF_TYPE_ETHERNET_CSMACD 
+*MediaType      = 0		; NdisMedium802_3
+*PhysicalMediaType = 14		; NdisPhysicalMedium802_3
+
+[RLTKGBIT.ndi.NT.Services]
+AddService = RLTKGBIT, 2, RLTKGBIT.Service, common.EventLog
+
+
+[RLTKGBIT.reg]
+HKR, Ndi,                       Service,    0, "RLTKGBIT"
+HKR, Ndi\Interfaces,            UpperRange, 0, "ndis5"
+HKR, Ndi\Interfaces,            LowerRange, 0, "ethernet"
+
+
+[RLTKGBIT.Service]
+DisplayName     = %RLTKGBIT.Service.DispName%
+ServiceType     = 1 ;%SERVICE_KERNEL_DRIVER%
+StartType       = 3 ;%SERVICE_DEMAND_START%
+ErrorControl    = 1 ;%SERVICE_ERROR_NORMAL%
+ServiceBinary   = %12%\RLTKGBIT.sys
+LoadOrderGroup  = NDIS
+
+[common.EventLog]
+AddReg = common.AddEventLog.reg
+
+[common.AddEventLog.reg]
+HKR, , EventMessageFile, 0x00020000, "%%SystemRoot%%\System32\netevent.dll"
+HKR, , TypesSupported,   0x00010001, 7
+
+;-----------------------------------------------------------------------------
+; DestinationDirs
+;
+[RLTKGBIT.CopyFiles]
+RLTKGBIT.sys,,,2
+
+[SourceDisksNames]
+;
+; diskid = description[, [tagfile] [, <unused>, subdir]]
+;
+1 = %DiskDescription%,RLTKGBIT.sys,,
+
+
+[SourceDisksFiles]
+;
+; filename_on_source = diskID[, [subdir][, size]]
+;
+RLTKGBIT.sys = 1,, ; on distribution disk 1
+
+
+[DestinationDirs]
+RLTKGBIT.CopyFiles     = 12
+DefaultDestDir     = 11
+
+[Strings]
+Driware                    = "Driware"
+
+RLTKGBIT.DeviceDesc         = "Realtek-Driware 8168/8111/8169 and compatible Ethernet controllers"
+
+RLTKGBIT.Service.DispName = "Realtek-Driware 8168/8111/8169 and compatible Ethernet controllers"
+
+DiskDescription 	 = "Driware Driver Disk 1"
+
+
