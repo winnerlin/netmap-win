@@ -1,0 +1,63 @@
+[version]
+Signature   	= "$WINDOWS NT$"
+Class       	= Net
+ClassGUID   	= {4d36e972-e325-11ce-bfc1-08002be10318}
+Provider   	= %KOZUKA%
+Compatible  	= 1
+DriverVer	= 01/13/2013,1.0.0.0
+
+[Manufacturer]
+%KOZUKA%     = KOZUKA,NTx86
+
+[KOZUKA.NTx86]
+%E100E.DeviceDesc%              = E100ECopper,  PCI\VEN_8086&DEV_100E&SUBSYS_001E8086
+%E100E.DeviceDesc%              = E100ECopper,  PCI\VEN_8086&DEV_100E&SUBSYS_002E8086
+%E100E.DeviceDesc%              = E100ECopper,  PCI\VEN_8086&DEV_100E&SUBSYS_8920107B
+
+[E100ECopper]
+BusType         = 5
+Characteristics = 4 ; %NCF_PHYSICAL%
+CopyFiles       = E100ECopper.CopyFiles
+
+[E100ECopper.Services]
+AddService = E100ECopper, 2, E100ECopper.Service, common.EventLog
+
+[E100ECopper.Service]
+DisplayName     = %E100E.Service.DispName%
+ServiceType     = 1 ;%SERVICE_KERNEL_DRIVER%
+StartType       = 3 ;%SERVICE_DEMAND_START%
+ErrorControl    = 1 ;%SERVICE_ERROR_NORMAL%
+ServiceBinary   = %12%\netmap_e100e.sys
+LoadOrderGroup  = NDIS
+
+[E100ECopper.CopyFiles]
+netmap_e100e.sys,,,2
+
+;-----------------------------------------------------------------------------
+; Common base for all drivers for Eventlog
+;
+[common.EventLog]
+AddReg = common.AddEventLog.reg
+
+[common.AddEventLog.reg]
+HKR, , EventMessageFile, 0x00020000, "%%SystemRoot%%\System32\netevent.dll;%%SystemRoot%%\System32\drivers\netmap_e100e.sys"
+HKR, , TypesSupported,   0x00010001, 7
+
+
+;-----------------------------------------------------------------------------
+; DestinationDirs
+;
+[DestinationDirs]
+E100ECopper.CopyFiles = 12
+ 
+[SourceDisksNames]
+1 = %DISKNAME%,netmap_e100e.sys,,""
+ 
+[SourceDisksFiles]
+netmap_e100e.sys  = 1,,
+
+[Strings]
+KOZUKA				= "Masahiro KOZUKA"
+DISKNAME			= "Intel(R) PRO/1000 Driver Disk"
+E100E.DeviceDesc		= "TEST: Intel(R) PRO/1000 MT Desktop Adapter"
+E100E.Service.DispName		= "TEST: Intel(R) PRO/1000 MT Desktop Adapter"
