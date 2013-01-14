@@ -29,6 +29,21 @@
   <ItemGroup>
     <ClCompile Include="main.c" />
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="e1000_80003es2lan.h" />
+    <ClInclude Include="e1000_api.h" />
+    <ClInclude Include="e1000_defines.h" />
+    <ClInclude Include="e1000_hw.h" />
+    <ClInclude Include="e1000_ich8lan.h" />
+    <ClInclude Include="e1000_mac.h" />
+    <ClInclude Include="e1000_manage.h" />
+    <ClInclude Include="e1000_mbx.h" />
+    <ClInclude Include="e1000_nvm.h" />
+    <ClInclude Include="e1000_osdep.h" />
+    <ClInclude Include="e1000_phy.h" />
+    <ClInclude Include="e1000_regs.h" />
+    <ClInclude Include="e1000_vf.h" />
+  </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{C779822F-2DBE-4583-B8D0-31BA856CC1FA}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
@@ -100,7 +115,7 @@
       </PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions);__Windows__</PreprocessorDefinitions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -115,7 +130,7 @@
       <Optimization>Disabled</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>_WIN64;_AMD64_;AMD64;CONDITION_HANDLING=1;NT_UP=1;NT_INST=0;WIN32=100;_NT1X_=100;WINNT=1;_WIN32_WINNT=0x0601;WINVER=0x0601;_WIN32_IE=0x0800;WIN32_LEAN_AND_MEAN=1;DEVL=1;__BUILDMACHINE__=WinDDK;NDEBUG;_DLL=1;NDIS_MINIPORT_DRIVER;NDIS60_MINIPORT=1;BINARY_COMPATIBLE=0;NTDDI_VERSION=0x06010000</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_WIN64;_AMD64_;AMD64;CONDITION_HANDLING=1;NT_UP=1;NT_INST=0;WIN32=100;_NT1X_=100;WINNT=1;_WIN32_WINNT=0x0601;WINVER=0x0601;_WIN32_IE=0x0800;WIN32_LEAN_AND_MEAN=1;DEVL=1;__BUILDMACHINE__=WinDDK;NDEBUG;_DLL=1;NDIS_MINIPORT_DRIVER;NDIS60_MINIPORT=1;BINARY_COMPATIBLE=0;NTDDI_VERSION=0x06010000;__Windows__</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>$(BASEWDK7)\inc\api;$(BASEWDK7)\inc\ddk;$(BASEWDK7)\inc\crt</AdditionalIncludeDirectories>
       <StringPooling>true</StringPooling>
       <StructMemberAlignment>8Bytes</StructMemberAlignment>
@@ -152,7 +167,7 @@
       <Optimization>Disabled</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>_X86_=1;i386=1;STD_CALL;CONDITION_HANDLING=1;NT_UP=1;NT_INST=0;WIN32=100;_NT1X_=100;WINNT=1;_WIN32_WINNT=0x0601;WINVER=0x0601;_WIN32_IE=0x0800;WIN32_LEAN_AND_MEAN=1;DEVL=1;__BUILDMACHINE__=WinDDK;FPO=0;NDEBUG;_DLL=1;NDIS_MINIPORT_DRIVER;NDIS60_MINIPORT=1;BINARY_COMPATIBLE=0;NTDDI_VERSION=0x06010000;KMDF_MAJOR_VERSION_STRING=01;KMDF_MINOR_VERSION_STRING=009</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_X86_=1;i386=1;STD_CALL;CONDITION_HANDLING=1;NT_UP=1;NT_INST=0;WIN32=100;_NT1X_=100;WINNT=1;_WIN32_WINNT=0x0601;WINVER=0x0601;_WIN32_IE=0x0800;WIN32_LEAN_AND_MEAN=1;DEVL=1;__BUILDMACHINE__=WinDDK;FPO=0;NDEBUG;_DLL=1;NDIS_MINIPORT_DRIVER;NDIS60_MINIPORT=1;BINARY_COMPATIBLE=0;NTDDI_VERSION=0x06010000;KMDF_MAJOR_VERSION_STRING=01;KMDF_MINOR_VERSION_STRING=009;__Windows__</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>$(BASEWDK7)\inc\api;$(BASEWDK7)\inc\ddk;$(BASEWDK7)\inc\crt</AdditionalIncludeDirectories>
       <StringPooling>true</StringPooling>
       <StructMemberAlignment>8Bytes</StructMemberAlignment>

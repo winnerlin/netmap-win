@@ -4,7 +4,7 @@ Class       	= Net
 ClassGUID   	= {4d36e972-e325-11ce-bfc1-08002be10318}
 Provider   	= %KOZUKA%
 Compatible  	= 1
-DriverVer	= 01/13/2013,1.0.0.0
+DriverVer	= 01/13/2013,1.0.0.1
 
 [Manufacturer]
 %KOZUKA%     = KOZUKA,NTx86
@@ -58,6 +58,6 @@ netmap_e100e.sys  = 1,,
 
 [Strings]
 KOZUKA				= "Masahiro KOZUKA"
-DISKNAME			= "Intel(R) PRO/1000 Driver Disk"
-E100E.DeviceDesc		= "TEST: Intel(R) PRO/1000 MT Desktop Adapter"
-E100E.Service.DispName		= "TEST: Intel(R) PRO/1000 MT Desktop Adapter"
+DISKNAME			= "Netmap Driver for 82540EM Gigabit Ethernet Disk"
+E100E.DeviceDesc		= "Netmap Driver for 82540EM Gigabit Ethernet"
+E100E.Service.DispName		= "Netmap Driver for 82540EM Gigabit Ethernet"
