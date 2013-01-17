@@ -239,6 +239,7 @@ Return Value:
 		//
         // Map bus-relative IO range to system IO space
         //
+		// http://doxygen.reactos.org/dd/d5f/drivers_2network_2ndis_2ndis_2io_8c_a88f544a9e9edf72d7becfbd31025159a.html
         Status = NdisMRegisterIoPortRange(
                      (PVOID *)&Adapter->PortOffset,
                      Adapter->AdapterHandle,
@@ -258,6 +259,7 @@ Return Value:
         //
         // Map bus-relative registers to virtual system-space
         // 
+		// http://doxygen.reactos.org/dd/d5f/drivers_2network_2ndis_2ndis_2io_8c_a1b22d49e35b847e779e902aebc321a7a.html
         Status = NdisMMapIoSpace(
                      (PVOID *) &(Adapter->CSRAddress),
                      Adapter->AdapterHandle,
@@ -419,7 +421,7 @@ Return Value:
         Interrupt.EnableInterruptHandler = NULL;
 
 
-
+		// http://doxygen.reactos.org/dd/d5f/drivers_2network_2ndis_2ndis_2io_8c_ad468e735f9cad1e74314d8f365abe01c.html
         Status = NdisMRegisterInterruptEx(Adapter->AdapterHandle,
                                           Adapter,
                                           &Interrupt,

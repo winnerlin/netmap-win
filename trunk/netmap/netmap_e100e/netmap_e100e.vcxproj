@@ -30,19 +30,8 @@
     <ClCompile Include="main.c" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="e1000_80003es2lan.h" />
-    <ClInclude Include="e1000_api.h" />
     <ClInclude Include="e1000_defines.h" />
-    <ClInclude Include="e1000_hw.h" />
-    <ClInclude Include="e1000_ich8lan.h" />
-    <ClInclude Include="e1000_mac.h" />
-    <ClInclude Include="e1000_manage.h" />
-    <ClInclude Include="e1000_mbx.h" />
-    <ClInclude Include="e1000_nvm.h" />
-    <ClInclude Include="e1000_osdep.h" />
-    <ClInclude Include="e1000_phy.h" />
     <ClInclude Include="e1000_regs.h" />
-    <ClInclude Include="e1000_vf.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{C779822F-2DBE-4583-B8D0-31BA856CC1FA}</ProjectGuid>
