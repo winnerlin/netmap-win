@@ -1,4 +1,8 @@
 #include <ntddk.h>
+#include <wdm.h>
+
+#include "e1000_defines.h"
+#include "e1000_regs.h"
 
 NTSTATUS AddDevice(IN PDRIVER_OBJECT, IN PDEVICE_OBJECT);
 VOID Unload(IN PDRIVER_OBJECT);
@@ -171,6 +175,10 @@ AllocatePciResource(
 {
 	NTSTATUS status = STATUS_SUCCESS;
 	unsigned int i, ii;
+	PHYSICAL_ADDRESS memPhysAddress;
+	SIZE_T memPhysLength = 0;
+	PUCHAR virtualAddress = NULL;
+	ULONG e1000Status = 0;
 
 	DbgPrint("AllocatePciResource: enter\n");
 	for (i = 0; i < AllocatedResources->Count; i++) {
@@ -217,6 +225,12 @@ AllocatePciResource(
 					ii,
 					AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Memory.Start,
 					AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Memory.Length
+					);
+				memPhysAddress = AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Memory.Start;
+				memPhysLength = AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Memory.Length;
+				virtualAddress = MmMapIoSpace(memPhysAddress,
+					memPhysLength,
+					MmNonCached
 					);
 				break;
 			case CmResourceTypeMemoryLarge:
@@ -296,8 +310,386 @@ AllocatePciResource(
 			}
 		}
 	}
+
+	if (virtualAddress != NULL) {
+		READ_REGISTER_BUFFER_ULONG((PULONG)(virtualAddress + E1000_STATUS),
+			&e1000Status,
+			1
+			);
+		DbgPrint("bus => %s\n",
+			(e1000Status & E1000_STATUS_PCIX_MODE) ? "PCIX" : "PCI"
+			);
+		if ((e1000Status & E1000_STATUS_PCIX_MODE) != 0) {
+			DbgPrint("speed => %x\n",
+				(e1000Status & E1000_STATUS_PCIX_SPEED)
+				);
+		} else {
+			DbgPrint("speed => %s\n",
+				(e1000Status & E1000_STATUS_PCI66) ? "66" : "33"
+				);
+
+		}
+		DbgPrint("width => %d\n",
+			(e1000Status & E1000_STATUS_BUS64) ? 64 : 32
+			);
+		MmUnmapIoSpace(virtualAddress, memPhysLength);
+	}
 	DbgPrint("AllocatePciResource: leave\n");
 	return status;
+}
+
+
+ULONG delay_usec = 50;
+USHORT opcode_bits = 3;
+USHORT address_bits = 0;
+ULONG word_size = 0;
+
+VOID
+RaiseEECClock(
+	IN PUCHAR Register0,
+	IN OUT PULONG eecd
+	)
+{
+	ULONG val;
+	DbgPrint("RaiseEECClock: enter\n");
+
+	*eecd = *eecd | E1000_EECD_SK;
+	WRITE_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_EECD),
+		eecd,
+		1
+		);
+	READ_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_STATUS),
+		eecd,
+		1
+		);
+	KeStallExecutionProcessor(50);
+	DbgPrint("RaiseEECClock: leave\n");
+}
+
+VOID
+LowerEECClock(
+	IN PUCHAR Register0,
+	IN OUT PULONG eecd
+	)
+{
+	ULONG val;
+	DbgPrint("LowerEECClock: enter\n");
+
+	*eecd = *eecd & ~E1000_EECD_SK;
+	WRITE_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_EECD),
+		eecd,
+		1
+		);
+	READ_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_STATUS),
+		eecd,
+		1
+		);
+	KeStallExecutionProcessor(50);
+	DbgPrint("LowerEECClock: leave\n");
+}
+
+VOID
+ShiftOutEEC(
+	IN PUCHAR Register0,
+	IN ULONG data,
+	IN USHORT count
+	)
+{
+	ULONG eecd;
+	ULONG mask;
+
+	DbgPrint("ShiftOutEEC: enter\n");
+
+	READ_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_EECD),
+		&eecd,
+		1
+		);
+	mask = 0x01 << (count - 1);
+	eecd |= E1000_EECD_DO;
+
+	do {
+		eecd &= ~E1000_EECD_DI;
+		if ((data & mask) != 0)
+			eecd |= E1000_EECD_DI;
+
+		WRITE_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_EECD),
+			&eecd,
+			1
+			);
+		READ_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_STATUS),
+			&eecd,
+			1
+			);
+		KeStallExecutionProcessor(50);
+		RaiseEECClock(Register0, &eecd);
+		LowerEECClock(Register0, &eecd);
+
+		mask >>= 1;
+	} while (mask > 0);
+
+	eecd &= ~E1000_EECD_DI;
+	WRITE_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_EECD),
+		&eecd,
+		1
+		);
+
+	DbgPrint("ShiftOutEEC: leave\n");
+}
+
+USHORT
+ShiftInEEC(
+	IN PUCHAR Register0,
+	IN USHORT count
+	)
+{
+	ULONG eecd;
+	ULONG i;
+	USHORT data;
+
+	DbgPrint("ShiftInEEC: enter\n");
+
+	READ_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_EECD),
+		&eecd,
+		1
+		);
+
+	eecd &= ~(E1000_EECD_DO | E1000_EECD_DI);
+	data = 0;
+
+	for (i = 0; i < count; i++) {
+		data <<= 1;
+		RaiseEECClock(Register0, &eecd);
+
+		READ_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_EECD),
+			&eecd,
+			1
+			);
+
+		eecd &= ~E1000_EECD_DI;
+		if ((eecd & E1000_EECD_DO) != 0)
+			data |= 1;
+
+		LowerEECClock(Register0, &eecd);
+	}
+
+	DbgPrint("ShiftInEEC: leave\n");
+	return data;
+}
+
+VOID
+StopNvm(
+	IN PUCHAR Register0
+	)
+{
+	ULONG eecd = 0;
+
+	DbgPrint("StopEvm: enter\n");
+	READ_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_EECD),
+		&eecd,
+		1
+		);
+	eecd &= ~(E1000_EECD_CS | E1000_EECD_DI);
+	WRITE_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_EECD),
+		&eecd,
+		1
+		);
+	RaiseEECClock(Register0, &eecd);
+	LowerEECClock(Register0, &eecd);
+
+	DbgPrint("StopEvm: leaver\n");
+}
+
+VOID
+InitNvmParam(
+	IN PUCHAR Register0
+	)
+{
+	ULONG eecd = 0;
+
+	DbgPrint("InitNvmParam: enter\n");
+	delay_usec = 50;
+	opcode_bits = 3;
+
+	READ_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_EECD),
+		&eecd,
+		1
+		);
+	address_bits = (eecd & E1000_EECD_SIZE) != 0 ? 8 : 6;
+	word_size = (eecd & E1000_EECD_SIZE) != 0 ? 256 : 64;
+
+	DbgPrint("InitNvmParam: leave\n");
+}
+
+NTSTATUS
+AcquireNvm(
+	IN PUCHAR Register0
+	)
+{
+	ULONG eecd = 0;
+	ULONG timeout = E1000_NVM_GRANT_ATTEMPTS;
+
+	DbgPrint("AcquireNvm: enter\n");
+	READ_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_EECD),
+		&eecd,
+		1
+		);
+	eecd |= E1000_EECD_REQ;
+	WRITE_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_EECD),
+		&eecd,
+		1
+		);
+
+	READ_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_EECD),
+		&eecd,
+		1
+		);
+	while (timeout > 0) {
+		if ((eecd & E1000_EECD_GNT) != 0)
+			break;
+		KeStallExecutionProcessor(delay_usec);
+		READ_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_EECD),
+			&eecd,
+			1
+			);
+		timeout--;
+	}
+	if (timeout == 0) {
+		eecd &= ~E1000_EECD_REQ;
+		WRITE_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_EECD),
+			&eecd,
+			1
+			);
+		DbgPrint("AcquireNvm: leave#1\n");
+		return STATUS_INVALID_PARAMETER;
+	}
+
+	DbgPrint("AcquireNvm: leave\n");
+	return STATUS_SUCCESS;
+}
+
+NTSTATUS
+PrepareNvm(
+	IN PUCHAR Register0)
+{
+	ULONG eecd = 0;
+
+	DbgPrint("PrepateNvm: enter\n");
+
+	READ_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_EECD),
+		&eecd,
+		1
+		);
+	eecd &= ~(E1000_EECD_DI | E1000_EECD_SK);
+	WRITE_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_EECD),
+		&eecd,
+		1
+		);
+	eecd |= E1000_EECD_CS;
+	WRITE_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_EECD),
+		&eecd,
+		1
+		);
+
+	DbgPrint("PrepateNvm: enter\n");
+	return STATUS_SUCCESS;
+}
+
+VOID
+StandbyNvm(
+	IN PUCHAR Register0
+	)
+{
+	ULONG eecd = 0;
+
+	DbgPrint("StandbyNvm: enter\n");
+	READ_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_EECD),
+		&eecd,
+		1
+		);
+	eecd &= ~(E1000_EECD_CS | E1000_EECD_SK);
+	WRITE_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_EECD),
+		&eecd,
+		1
+		);
+	eecd |= E1000_EECD_CS;
+	WRITE_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_EECD),
+		&eecd,
+		1
+		);
+
+	RaiseEECClock(Register0, &eecd);
+	eecd |= E1000_EECD_CS;
+	WRITE_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_EECD),
+		&eecd,
+		1
+		);
+	eecd |= E1000_EECD_CS;
+	WRITE_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_EECD),
+		&eecd,
+		1
+		);
+	KeStallExecutionProcessor(delay_usec);
+
+	LowerEECClock(Register0, &eecd);
+
+	DbgPrint("StandbyNvm: leave\n");
+}
+
+VOID
+ReleaseNvm(
+	IN PUCHAR Register0
+	)
+{
+	ULONG eecd = 0;
+
+	DbgPrint("ReleaseNvm: enter\n");
+
+	StopNvm(Register0);
+	READ_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_EECD),
+		&eecd,
+		1
+		);
+	eecd &= ~E1000_EECD_REQ;
+	WRITE_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_EECD),
+		&eecd,
+		1
+		);
+	DbgPrint("ReleaseNvm: leave\n");
+}
+
+NTSTATUS
+ReadNvm(
+	IN PUCHAR Register0,
+	IN USHORT offset,
+	IN USHORT words,
+	OUT PUSHORT data
+	)
+{
+	NTSTATUS status = STATUS_SUCCESS;
+	ULONG i;
+	UCHAR readOpcode = NVM_READ_OPCODE_MICROWIRE;
+
+	DbgPrint("ReadNvm: enter\n");
+
+	AcquireNvm(Register0);
+	PrepareNvm(Register0);
+
+	for (i = 0; i < words; i++) {
+		ShiftOutEEC(Register0,
+			readOpcode,
+			opcode_bits
+			);
+		ShiftOutEEC(Register0,
+			(USHORT)(offset + i),
+			address_bits
+			);
+		data[i] = ShiftInEEC(Register0, 16);
+		StandbyNvm(Register0);
+	}
+	ReleaseNvm(Register0);
+
+	DbgPrint("ReadNvm: leave\n");
+	return STATUS_SUCCESS;
 }
 
 NTSTATUS
@@ -385,9 +777,6 @@ DispatchPnp(
 		status = ForwardIrpAndWait(LowerDeviceObject, Irp);
 		if (status == STATUS_SUCCESS) {
 			IdentifyHardware(MyPhysicalDeviceObject);
-			DbgPrint("AllocatedResources:\n");
-			AllocatePciResource(irpSp->Parameters.StartDevice.AllocatedResources);
-			DbgPrint("AllocatedResourcesTranslated:\n");
 			AllocatePciResource(irpSp->Parameters.StartDevice.AllocatedResourcesTranslated);
 /*
 Command => 7
@@ -427,24 +816,21 @@ List[0] => InterfaceType=5,BusNumber=0,Version=1,Revision=1
 	Descriptors[2] => Type=CmResourceTypePort,u.Port={Start=d060,Length=0}
 	Descriptors[3] => Type=CmResourceTypeDevicePrivate,u.DevicePrivate={1,2,0}
 	Descriptors[4] => Type=CmResourceTypeInterrupt,u.Interrupt={Level=12,Vector=39,Affinity=1}
-*//
+*/
 		}
 		IoCompleteRequest(Irp, IO_NO_INCREMENT);
 		DbgPrint("DispatchPnp: leave#1\n");
 		return status;
 	case IRP_MN_REMOVE_DEVICE:
 		status = ForwardIrpAndWait(LowerDeviceObject, Irp);
-		if (status == STATUS_SUCCESS) {
-			IoCompleteRequest(Irp, IO_NO_INCREMENT);
-			return status;
-			DbgPrint("DispatchPnp: leave#2\n");
-		}
+
 		IoDetachDevice(LowerDeviceObject);
 		LowerDeviceObject = NULL;
 		IoDeleteDevice(MyDeviceObject);
 		MyDeviceObject = NULL;
+
 		IoCompleteRequest(Irp, IO_NO_INCREMENT);
-		DbgPrint("DispatchPnp: leave#3\n");
+		DbgPrint("DispatchPnp: leave#2\n");
 		return status;
 	default:
 		break;
