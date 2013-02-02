@@ -1,32 +1,421 @@
-#include <ntddk.h>
+#include <ntifs.h>
 #include <wdm.h>
 
-#include "e1000_defines.h"
-#include "e1000_regs.h"
+#include "e1000_api.h"
+#include "e100e.h"
 
 NTSTATUS AddDevice(IN PDRIVER_OBJECT, IN PDEVICE_OBJECT);
 VOID Unload(IN PDRIVER_OBJECT);
+NTSTATUS Dispatch(IN PDEVICE_OBJECT, IN PIRP);
 NTSTATUS DispatchPnp(IN PDEVICE_OBJECT, IN PIRP);
 NTSTATUS DispatchCreate(IN PDEVICE_OBJECT, IN PIRP);
 NTSTATUS DispatchClose(IN PDEVICE_OBJECT, IN PIRP);
 NTSTATUS DispatchShutdown(IN PDEVICE_OBJECT, IN PIRP);
 NTSTATUS DispatchDeviceControl(IN PDEVICE_OBJECT, IN PIRP);
 
-PDEVICE_OBJECT MyDeviceObject = NULL;
-PDEVICE_OBJECT MyPhysicalDeviceObject = NULL;
-PDEVICE_OBJECT LowerDeviceObject = NULL;
+
+// Access a device's configuration space.
+// http://msdn.microsoft.com/en-us/library/windows/hardware/ff558707(v=vs.85).aspx
+NTSTATUS
+ReadWritePciConfigSpace(
+	IN PDEVICE_OBJECT  targetDeviceObject,
+	IN ULONG  readOrWrite,  // 0 for read, 1 for write
+	IN PVOID  buffer,
+	IN ULONG  offset,
+	IN ULONG  length
+	)
+{
+	KEVENT event;
+	NTSTATUS status;
+	PIRP irp;
+	IO_STATUS_BLOCK ioStatusBlock;
+	PIO_STACK_LOCATION irpStack;
+	PDEVICE_OBJECT deviceObject;
+
+	PAGED_CODE();
+	KeInitializeEvent(&event, NotificationEvent, FALSE);
+	deviceObject = IoGetAttachedDeviceReference(targetDeviceObject);
+	if (deviceObject == NULL) {
+		status = STATUS_NO_SUCH_DEVICE;
+		goto done;
+	}
+
+	irp = IoBuildSynchronousFsdRequest(IRP_MJ_PNP,
+		deviceObject,
+		NULL,
+		0,
+		NULL,
+		&event,
+		&ioStatusBlock);
+	if (irp == NULL) {
+		status = STATUS_INSUFFICIENT_RESOURCES;
+		goto done;
+	}
+	irpStack = IoGetNextIrpStackLocation(irp);
+	if (readOrWrite == 0) {
+		irpStack->MinorFunction = IRP_MN_READ_CONFIG;
+	} else {
+		irpStack->MinorFunction = IRP_MN_WRITE_CONFIG;
+	}
+	irpStack->Parameters.ReadWriteConfig.WhichSpace = PCI_WHICHSPACE_CONFIG;
+	irpStack->Parameters.ReadWriteConfig.Buffer = buffer;
+	irpStack->Parameters.ReadWriteConfig.Offset = offset;
+	irpStack->Parameters.ReadWriteConfig.Length = length;
+
+	// Initialize the status to error in case the bus driver does not 
+	// set it correctly.
+	irp->IoStatus.Status = STATUS_NOT_SUPPORTED;
+	status = IoCallDriver(deviceObject, irp);
+	if (status == STATUS_PENDING) {
+		KeWaitForSingleObject(&event, Executive, KernelMode, FALSE, NULL);
+		status = ioStatusBlock.Status;
+	}
+done:
+	// Done with reference
+	if (deviceObject != NULL) {
+		ObDereferenceObject(deviceObject);
+	}
+	return status;
+}
+
+u32
+pci_read_config(
+	IN PDEVICE_OBJECT deviceObject,
+	IN int reg,
+	IN int width
+	)
+{
+	NTSTATUS status;
+	PE100E_DEVICE_EXTENSION deviceExtension = (PE100E_DEVICE_EXTENSION)deviceObject->DeviceExtension;
+	u32 val;
+
+	ASSERT(deviceExtension != NULL);
+	ASSERT(width <= sizeof(value));
+
+	status = ReadWritePciConfigSpace(deviceExtension->nextDeviceObject,
+		0,
+		&val,
+		reg,
+		width
+		);
+	if (status != STATUS_SUCCESS) {
+		return 0xffffffff;
+	}
+	return val;
+}
+
+void
+pci_write_config(
+	IN PDEVICE_OBJECT deviceObject,
+	IN int reg,	
+	u32 val,
+	IN int width
+	)
+{
+	NTSTATUS status;
+	PE100E_DEVICE_EXTENSION deviceExtension = (PE100E_DEVICE_EXTENSION)deviceObject->DeviceExtension;
+	u32 value;
+
+	ASSERT(width <= sizeof(value));
+
+	status = ReadWritePciConfigSpace(deviceExtension->nextDeviceObject,
+		1,
+		&val,
+		reg,
+		width
+		);
+}
+
+int
+pci_find_extcap(
+	IN PDEVICE_OBJECT deviceObject,
+	IN int capability,
+	OUT int *capreg
+	)
+{
+	u32 status, type, ptr, capability1;
+
+	status = pci_read_config(deviceObject,
+		FIELD_OFFSET(PCI_COMMON_CONFIG, Status),
+		2
+		);
+	if ((status & PCI_STATUS_CAPABILITIES_LIST) == 0) {
+		return -1;
+	}
+	type = pci_read_config(deviceObject, FIELD_OFFSET(PCI_COMMON_CONFIG, HeaderType), 1);
+	switch (type & 0x7f) {
+	case 0x00:
+		ptr = FIELD_OFFSET(PCI_COMMON_CONFIG, u.type0.CapabilitiesPtr);
+		break;
+	case 0x01: // PCI to PCI Bridge
+		ptr = FIELD_OFFSET(PCI_COMMON_CONFIG, u.type1.CapabilitiesPtr);
+		break;
+	case 0x02: // PCI to CARDBUS Bridge
+		ptr = FIELD_OFFSET(PCI_COMMON_CONFIG, u.type2.CapabilitiesPtr);
+		break;
+	default:
+		return -1;
+	}
+
+	ptr = pci_read_config(deviceObject, ptr, 1);
+	while (ptr != 0) {
+		capability1 = pci_read_config(deviceObject,
+			ptr + FIELD_OFFSET(PCI_CAPABILITIES_HEADER, CapabilityID),
+			1
+			);
+		if (capability1 == capability) {
+			if (capreg != NULL) {
+				*capreg = ptr;
+			}
+			return 0;
+		}
+		ptr = pci_read_config(deviceObject,
+			ptr + FIELD_OFFSET(PCI_CAPABILITIES_HEADER, Next),
+			1);
+	}
+
+	return -1;
+}
+
+VOID
+IdentifyHardware(
+	IN PDEVICE_OBJECT deviceObject)
+{
+	NTSTATUS status = STATUS_SUCCESS;
+	PE100E_DEVICE_EXTENSION deviceExtension = (PE100E_DEVICE_EXTENSION)deviceObject->DeviceExtension;
+	PCI_COMMON_CONFIG  pciConfig;
+	unsigned int i = 0;
+
+	DbgPrint("IdentifyHardware: enter\n");
+
+	ASSERT(deviceExtension != NULL);
+
+	RtlZeroMemory(&pciConfig, sizeof(pciConfig));
+	status = ReadWritePciConfigSpace(deviceExtension->nextDeviceObject,
+		0, // Read
+		&pciConfig,
+		FIELD_OFFSET(PCI_COMMON_CONFIG, VendorID),
+		sizeof(pciConfig)
+		);
+	if (status != STATUS_SUCCESS) {
+		DbgPrint("ReadWriteConfigSpace=%x\n", status);
+		DbgPrint("IdentifyHardware: leave#1\n");
+		return;
+	}
+
+#if 1
+	DbgPrint("Command => %x\n", pciConfig.Command);
+
+	DbgPrint("VendorID => %x\n", pciConfig.VendorID);
+	DbgPrint("DeviceID => %x\n", pciConfig.DeviceID);
+	DbgPrint("RevisionID => %x\n", pciConfig.RevisionID);
+	DbgPrint("SubVendorID => %x\n", pciConfig.u.type0.SubVendorID);
+	DbgPrint("SubSystemID => %x\n", pciConfig.u.type0.SubSystemID);
+#endif
+
+	deviceExtension->hw.bus.pci_cmd_word = pciConfig.Command;
+	deviceExtension->hw.vendor_id = pciConfig.VendorID;
+	deviceExtension->hw.device_id = pciConfig.DeviceID;
+	deviceExtension->hw.revision_id = pciConfig.RevisionID;
+	deviceExtension->hw.subsystem_vendor_id = pciConfig.u.type0.SubVendorID;
+	deviceExtension->hw.subsystem_device_id = pciConfig.u.type0.SubSystemID;
+
+	if (e1000_set_mac_type(&deviceExtension->hw)) {
+		DbgPrint("IdentifyHardware: leave#2\n");
+		return;
+	}
+
+	DbgPrint("IdentifyHardware: leave\n");
+	return;
+}
+
+// http://msdn.microsoft.com/en-us/library/windows/hardware/ff554399(v=vs.85).aspx
+NTSTATUS
+AllocatePciResources(
+	IN PDEVICE_OBJECT deviceObject,
+	IN PCM_RESOURCE_LIST allocatedResources
+	)
+{
+	NTSTATUS status = STATUS_SUCCESS;
+	PE100E_DEVICE_EXTENSION deviceExtension = (PE100E_DEVICE_EXTENSION)deviceObject->DeviceExtension;
+	unsigned int i, ii;
+
+	DbgPrint("AllocatePciResources: enter\n");
+
+	for (i = 0; i < allocatedResources->Count; i++) {
+		DbgPrint("List[%d] => InterfaceType=%x,BusNumber=%x,Version=%x,Revision=%x\n",
+			i,
+			allocatedResources->List[i].InterfaceType, // PCIBus=5
+			allocatedResources->List[i].BusNumber,
+			allocatedResources->List[i].PartialResourceList.Version,
+			allocatedResources->List[i].PartialResourceList.Revision);
+		for (ii = 0; ii < allocatedResources->List[i].PartialResourceList.Count; ii++) {
+			switch (allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].Type) {
+			case CmResourceTypePort:
+				DbgPrint("\tDescriptors[%d] => Type=CmResourceTypePort,u.Port={Start=%x,Length=%x}\n",
+					ii,
+					allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Port.Start,
+					allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Port.Length
+					);
+				break;
+			case CmResourceTypeInterrupt:
+				if ((allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].Flags & CM_RESOURCE_INTERRUPT_MESSAGE) != 0) {
+					DbgPrint("\tDescriptors[%d] => Type=CmResourceTypeInterrupt,u.MessageInterrupt={Raw: MessageCount=%x,Vector=%x,Affinity=%x}\n",
+						ii,
+						allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.MessageInterrupt.Raw.MessageCount,
+						allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.MessageInterrupt.Raw.Vector,
+						allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.MessageInterrupt.Raw.Affinity
+						);
+					DbgPrint("\tDescriptors[%d] => Type=CmResourceTypeInterrupt,u.MessageInterrupt={Translated: Level=%x,Vector=%x,Affinity=%x}\n",
+						ii,
+						allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.MessageInterrupt.Translated.Level,
+						allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.MessageInterrupt.Translated.Vector,
+						allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.MessageInterrupt.Translated.Affinity
+						);
+				} else {
+					DbgPrint("\tDescriptors[%d] => Type=CmResourceTypeInterrupt,u.Interrupt={Level=%x,Vector=%x,Affinity=%x}\n",
+						ii,
+						allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Interrupt.Level,
+						allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Interrupt.Vector,
+						allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Interrupt.Affinity
+						);
+				}
+				break;
+			case CmResourceTypeMemory:
+				DbgPrint("\tDescriptors[%d] => Type=CmResourceTypeMemory,u.Memory={Start=%x,Length=%x}\n",
+					ii,
+					allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Memory.Start,
+					allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Memory.Length
+					);
+				deviceExtension->osdep.mem_bus_physical = allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Memory.Start;
+				deviceExtension->osdep.mem_bus_length = allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Memory.Length;
+				break;
+			case CmResourceTypeMemoryLarge:
+				if ((allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].Flags & CM_RESOURCE_MEMORY_LARGE_40) != 0) {
+					DbgPrint("\tDescriptors[%d] => Type=CmResourceTypeMemory,u.Memory40={Start=%x,Length40=%x}\n",
+						ii,
+						allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Memory40.Start,
+						allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Memory40.Length40
+						);
+				} else if (
+					(allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].Flags & CM_RESOURCE_MEMORY_LARGE_48) != 0
+					) {
+					DbgPrint("\tDescriptors[%d] => Type=CmResourceTypeMemory,u.Memory48={Start=%x,Length48=%x}\n",
+						ii,
+						allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Memory48.Start,
+						allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Memory48.Length48
+						);
+				} else if (
+					(allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].Flags & CM_RESOURCE_MEMORY_LARGE_64) != 0
+					) {
+					DbgPrint("\tDescriptors[%d] => Type=CmResourceTypeMemory,u.Memory64={Start=%x,Length64=%x}\n",
+						ii,
+						allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Memory64.Start,
+						allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Memory64.Length64
+						);
+				}
+				break;
+			case CmResourceTypeDma:
+				DbgPrint("\tDescriptors[%d] => Type=CmResourceTypeDma,u.Dma={Channel=%x,Port=%x}\n",
+					ii,
+					allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Dma.Channel,
+					allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Dma.Port
+					);
+				break;
+			case CmResourceTypeDevicePrivate:
+				DbgPrint("\tDescriptors[%d] => Type=CmResourceTypeDevicePrivate,u.DevicePrivate={%x,%x,%x}\n",
+					ii,
+					allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.DevicePrivate.Data[0],
+					allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.DevicePrivate.Data[1],
+					allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.DevicePrivate.Data[2]
+					);
+				break;
+			case CmResourceTypeBusNumber:
+				DbgPrint("\tDescriptors[%d] => Type=CmResourceTypeBusNumber,u.BusNumber={Start=%x,Length=%x}\n",
+					ii,
+					allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.BusNumber.Start,
+					allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.BusNumber.Length
+					);
+				break;
+			case CmResourceTypeDeviceSpecific:
+				DbgPrint("\tDescriptors[%d] => Type=CmResourceTypeDeviceSpecific,u.DeviceSpecificData{DataSize=%x}\n",
+					ii,
+					allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.DeviceSpecificData.DataSize
+					);
+				break;
+			case CmResourceTypePcCardConfig:
+				DbgPrint("\tDescriptors[%d] => Type=CmResourceTypePcCardConfig,u.DevicePrivate={%x,%x,%x}\n",
+					ii,
+					allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.DevicePrivate.Data[0],
+					allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.DevicePrivate.Data[1],
+					allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.DevicePrivate.Data[2]
+					);
+				break;
+			case CmResourceTypeMfCardConfig:
+				DbgPrint("\tDescriptors[%d] => Type=CmResourceTypeMfCardConfig,u.DevicePrivate={%x,%x,%x}\n",
+					ii,
+					allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.DevicePrivate.Data[0],
+					allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.DevicePrivate.Data[1],
+					allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.DevicePrivate.Data[2]
+					);
+				break;
+			default:
+				DbgPrint("\tDescriptors[%d] => Type=%x\n",
+					ii,
+					allocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].Type
+					);
+			}
+		}
+	}
+
+	deviceExtension->osdep.mem_bus_virtual = MmMapIoSpace(
+		deviceExtension->osdep.mem_bus_physical,
+		deviceExtension->osdep.mem_bus_length,
+		MmNonCached
+		);
+	if (deviceExtension->osdep.mem_bus_virtual == NULL) {
+		status = STATUS_INSUFFICIENT_RESOURCES;
+		DbgPrint("AllocatePciResources: leave#1\n");
+		goto done;
+	}
+	deviceExtension->hw.hw_addr = (u8 *)deviceExtension->osdep.mem_bus_virtual;
+	deviceExtension->hw.back = &deviceExtension->osdep;
+
+	DbgPrint("AllocatePciResources: leave\n");
+done:
+	return status;
+}
+
+VOID
+FreePciResource(
+	IN PDEVICE_OBJECT deviceObject
+	)
+{
+	PE100E_DEVICE_EXTENSION deviceExtension = (PE100E_DEVICE_EXTENSION)deviceObject->DeviceExtension;
+
+	DbgPrint("FreePciResource: leave\n");
+
+	if (deviceExtension->osdep.mem_bus_virtual != NULL) {
+		MmUnmapIoSpace(deviceExtension->osdep.mem_bus_virtual,
+			deviceExtension->osdep.mem_bus_length
+			);
+		deviceExtension->osdep.mem_bus_virtual = NULL;
+	}
+
+	DbgPrint("FreePciResource: leave\n");
+}
 
 
 NTSTATUS
 ForwardIrpAndWaitCompletionRoutine(
-	IN PDEVICE_OBJECT Fdo,
-	IN PIRP Irp,
-	IN PVOID Context
+	IN PDEVICE_OBJECT fdo,
+	IN PIRP irp,
+	IN PVOID context
 	)
 {
-	PKEVENT eventPtr = Context;
+	PKEVENT eventPtr = (PKEVENT)context;
 
-	if (Irp->PendingReturned) {
+	if (irp->PendingReturned) {
 		KeSetEvent(eventPtr, IO_NO_INCREMENT, FALSE);
 	}
 	return STATUS_MORE_PROCESSING_REQUIRED;
@@ -54,298 +443,294 @@ ForwardIrpAndWait(
 	return status;
 }
 
-// Access a device's configuration space.
-// http://msdn.microsoft.com/en-us/library/windows/hardware/ff558707(v=vs.85).aspx
 NTSTATUS
-ReadWriteConfigSpace(
-	IN PDEVICE_OBJECT  DeviceObject,
-	IN ULONG  ReadOrWrite,  // 0 for read, 1 for write
-	IN PVOID  Buffer,
-	IN ULONG  Offset,
-	IN ULONG  Length
-	)
+DriverEntry(
+	IN PDRIVER_OBJECT DriverObject,
+	IN PUNICODE_STRING RegistryPath)
 {
-	KEVENT event;
 	NTSTATUS status;
-	PIRP irp;
-	IO_STATUS_BLOCK ioStatusBlock;
-	PIO_STACK_LOCATION irpStack;
-	PDEVICE_OBJECT targetObject;
+	int i;
 
-	PAGED_CODE();
-	KeInitializeEvent(&event, NotificationEvent, FALSE);
-	targetObject = IoGetAttachedDeviceReference(DeviceObject);
-	irp = IoBuildSynchronousFsdRequest(IRP_MJ_PNP,
-		targetObject,
-		NULL,
-		0,
-		NULL,
-		&event,
-		&ioStatusBlock);
-	if (irp == NULL) {
-		status = STATUS_INSUFFICIENT_RESOURCES;
-		goto End;
-	}
-	irpStack = IoGetNextIrpStackLocation(irp);
-	if (ReadOrWrite == 0) {
-		irpStack->MinorFunction = IRP_MN_READ_CONFIG;
-	} else {
-		irpStack->MinorFunction = IRP_MN_WRITE_CONFIG;
-	}
-	irpStack->Parameters.ReadWriteConfig.WhichSpace = PCI_WHICHSPACE_CONFIG;
-	irpStack->Parameters.ReadWriteConfig.Buffer = Buffer;
-	irpStack->Parameters.ReadWriteConfig.Offset = Offset;
-	irpStack->Parameters.ReadWriteConfig.Length = Length;
+	DbgPrint("DriverEntry: enter\n");
 
-	// Initialize the status to error in case the bus driver does not 
-	// set it correctly.
-	irp->IoStatus.Status = STATUS_NOT_SUPPORTED;
-	status = IoCallDriver(targetObject, irp);
-	if (status == STATUS_PENDING) {
-		KeWaitForSingleObject(&event, Executive, KernelMode, FALSE, NULL);
-		status = ioStatusBlock.Status;
+	for (i = 0; i < IRP_MJ_MAXIMUM_FUNCTION; i++) {
+		DriverObject->MajorFunction[i] = Dispatch;
 	}
-End:
-	// Done with reference
-	ObDereferenceObject(targetObject);
-	return status;
+	DriverObject->DriverUnload = Unload;
+	DriverObject->DriverExtension->AddDevice = AddDevice;
+	DriverObject->MajorFunction[IRP_MJ_PNP] = DispatchPnp;
+
+	DriverObject->MajorFunction[IRP_MJ_CREATE] = DispatchCreate;
+	DriverObject->MajorFunction[IRP_MJ_CLOSE] = DispatchClose;
+	DriverObject->MajorFunction[IRP_MJ_SHUTDOWN] = DispatchShutdown;
+	DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = DispatchDeviceControl;
+
+	DbgPrint("DriverEntry: leave\n");
+	return STATUS_SUCCESS;
 }
 
 
 NTSTATUS
-IdentifyHardware(
-	IN PDEVICE_OBJECT PhisicalDeviceObject)
+AddDevice(
+	IN PDRIVER_OBJECT driverObject,
+	IN PDEVICE_OBJECT physicalDeviceObject)
 {
 	NTSTATUS status = STATUS_SUCCESS;
-	PCI_COMMON_CONFIG  pciConfig;
-	unsigned int i = 0;
+	PDEVICE_OBJECT deviceObject = NULL;
+	PE100E_DEVICE_EXTENSION deviceExtension = NULL;
 
-	DbgPrint("IdentifyHardware: enter\n");
+	DbgPrint("AddDevice: enter\n");
 
-	RtlZeroMemory(&pciConfig, sizeof(pciConfig));
-	status = ReadWriteConfigSpace(PhisicalDeviceObject,
-		0,
-		&pciConfig,
-		FIELD_OFFSET(PCI_COMMON_CONFIG, VendorID), // == 0 ?
-		sizeof(pciConfig)
+	status = IoCreateDevice(driverObject,
+		sizeof(E100E_DEVICE_EXTENSION),
+		NULL,
+		FILE_DEVICE_NETWORK,
+		FILE_DEVICE_SECURE_OPEN,
+		FALSE,
+		&deviceObject);
+	if (status != STATUS_SUCCESS) {
+		DbgPrint("AddDevice: leave#1\n");
+		goto done;
+	}
+	ASSERT(deviceObject != NULL);
+	
+	deviceExtension = (PE100E_DEVICE_EXTENSION)deviceObject->DeviceExtension;
+	RtlZeroMemory(deviceExtension, sizeof(E100E_DEVICE_EXTENSION));
+
+	deviceExtension->deviceObject = deviceExtension->osdep.dev = deviceObject;
+	deviceExtension->physicalDeviceObject = physicalDeviceObject;
+
+	deviceExtension->nextDeviceObject = IoAttachDeviceToDeviceStack(
+		deviceObject,
+		physicalDeviceObject
+		);
+	if (deviceExtension->nextDeviceObject == NULL) {
+		IoDeleteDevice(deviceObject);
+		status = STATUS_NO_SUCH_DEVICE;
+		DbgPrint("AddDevice: leave#2\n");
+		goto done;
+	}
+
+	deviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
+
+	DbgPrint("AddDevice: leave\n");
+done:
+	return status;
+}
+
+VOID
+Unload(
+	IN PDRIVER_OBJECT DriverObject)
+{
+	DbgPrint("Unload: enter\n");
+	DbgPrint("Unload: leave\n");
+
+}
+
+// http://msdn.microsoft.com/ja-JP/library/windows/hardware/ff563856(v=vs.85).aspx
+NTSTATUS
+DispatchPnpStartDevice(
+	IN PDEVICE_OBJECT deviceObject,
+	IN PIRP irp)
+{
+	NTSTATUS status = STATUS_SUCCESS;
+	PIO_STACK_LOCATION irpSp = IoGetCurrentIrpStackLocation(irp);
+	PE100E_DEVICE_EXTENSION deviceExtension = (PE100E_DEVICE_EXTENSION)deviceObject->DeviceExtension;
+
+	DbgPrint("DispatchPnpStartDevice: enter\n");
+
+	status = ForwardIrpAndWait(deviceExtension->nextDeviceObject, irp);
+	if (status != STATUS_SUCCESS) {
+		DbgPrint("DispatchPnpStartDevice: leave#1\n");
+		goto done;
+	}
+	IdentifyHardware(deviceObject);
+	status = AllocatePciResources(deviceObject,
+		irpSp->Parameters.StartDevice.AllocatedResourcesTranslated
 		);
 	if (status != STATUS_SUCCESS) {
-		DbgPrint("ReadWriteConfigSpace=%x\n", status);
-		DbgPrint("IdentifyHardware: leave#1\n");
-		return status;
+		DbgPrint("DispatchPnpStartDevice: leave#2\n");
+		goto done;
 	}
 
-	DbgPrint("Command => %x\n", pciConfig.Command);
+	if (e1000_setup_init_funcs(&deviceExtension->hw, TRUE)) {
+		status = STATUS_UNSUCCESSFUL;
+		DbgPrint("DispatchPnpStartDevice: leave#3\n");
+		goto done;
+	}
+	e1000_get_bus_info(&deviceExtension->hw);
+	e1000_reset_hw(&deviceExtension->hw);
 
-	DbgPrint("VendorID => %x\n", pciConfig.VendorID);
-	DbgPrint("DeviceID => %x\n", pciConfig.DeviceID);
-	DbgPrint("RevisionID => %x\n", pciConfig.RevisionID);
-	DbgPrint("SubVendorID => %x\n", pciConfig.u.type0.SubVendorID);
-	DbgPrint("SubSystemID => %x\n", pciConfig.u.type0.SubSystemID);
-
-#define EM_BAR_TYPE(v)          ((v) & EM_BAR_TYPE_MASK)
-#define EM_BAR_TYPE_MASK        0x00000001
-#define EM_BAR_TYPE_MMEM        0x00000000
-#define EM_BAR_TYPE_IO          0x00000001
-#define EM_BAR_TYPE_FLASH       0x0014
-#define EM_BAR_MEM_TYPE(v)      ((v) & EM_BAR_MEM_TYPE_MASK)
-#define EM_BAR_MEM_TYPE_MASK    0x00000006
-#define EM_BAR_MEM_TYPE_32BIT   0x00000000
-#define EM_BAR_MEM_TYPE_64BIT   0x00000004
-
-	for (i = 0; i < 7; i++) {
-		DbgPrint("BaseAddresses[%i] => val=%x,type=%x\n",
-			i,
-			pciConfig.u.type0.BaseAddresses[i],
-			EM_BAR_TYPE(pciConfig.u.type0.BaseAddresses[i])
-			);
-		if (EM_BAR_TYPE(pciConfig.u.type0.BaseAddresses[i]) == EM_BAR_TYPE_MMEM) {
-			DbgPrint("\tmem_type=%x\n", EM_BAR_MEM_TYPE(pciConfig.u.type0.BaseAddresses[i]));
+	if (e1000_validate_nvm_checksum(&deviceExtension->hw) < 0) {
+		if (e1000_validate_nvm_checksum(&deviceExtension->hw) < 0) {
+			DbgPrint("The EEPROM Checksum Is Not Valid\n");
+			status = STATUS_UNSUCCESSFUL;
+			DbgPrint("DispatchPnpStartDevice: leave#3\n");
+			goto done;
 		}
 	}
 
-	DbgPrint("IdentifyHardware: leave\n");
+	if (e1000_read_mac_addr(&deviceExtension->hw) < 0) {
+		DbgPrint("EEPROM read error while reading MAC address\n");
+		status = STATUS_UNSUCCESSFUL;
+		DbgPrint("DispatchPnpStartDevice: leave#4\n");
+		goto done;
+	}
+
+	DbgPrint("MAC address: %02x-%02x-%02x-%02x-%02x-%02x\n",
+		deviceExtension->hw.mac.addr[0],
+		deviceExtension->hw.mac.addr[1],
+		deviceExtension->hw.mac.addr[2],
+		deviceExtension->hw.mac.addr[3],
+		deviceExtension->hw.mac.addr[4],
+		deviceExtension->hw.mac.addr[5]
+	);
+	DbgPrint("DispatchPnpStartDevice: leave\n");
+done:
+	irp->IoStatus.Status = status;
+	IoCompleteRequest(irp, IO_NO_INCREMENT);
 	return status;
 }
 
-VOID InitNvmParam(IN PUCHAR);
-VOID ResetHardware(IN PUCHAR);
-VOID ReadMacAddr(IN PUCHAR);
-
-// http://msdn.microsoft.com/en-us/library/windows/hardware/ff554399(v=vs.85).aspx
+// http://msdn.microsoft.com/ja-JP/library/windows/hardware/ff561056(v=vs.85).aspx
 NTSTATUS
-AllocatePciResource(
-	IN PCM_RESOURCE_LIST AllocatedResources)
+DispatchPnpStopDevice(
+	IN PDEVICE_OBJECT deviceObject,
+	IN PIRP irp)
 {
 	NTSTATUS status = STATUS_SUCCESS;
-	unsigned int i, ii;
-	PHYSICAL_ADDRESS memPhysAddress;
-	SIZE_T memPhysLength = 0;
-	PUCHAR virtualAddress = NULL;
-	ULONG e1000Status = 0;
+	PIO_STACK_LOCATION irpSp = IoGetCurrentIrpStackLocation(irp);
+	PE100E_DEVICE_EXTENSION deviceExtension = (PE100E_DEVICE_EXTENSION)deviceObject->DeviceExtension;
 
-	DbgPrint("AllocatePciResource: enter\n");
-	for (i = 0; i < AllocatedResources->Count; i++) {
-		DbgPrint("List[%d] => InterfaceType=%x,BusNumber=%x,Version=%x,Revision=%x\n",
-			i,
-			AllocatedResources->List[i].InterfaceType, // PCIBus=5
-			AllocatedResources->List[i].BusNumber,
-			AllocatedResources->List[i].PartialResourceList.Version,
-			AllocatedResources->List[i].PartialResourceList.Revision);
-		for (ii = 0; ii < AllocatedResources->List[i].PartialResourceList.Count; ii++) {
-			switch (AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].Type) {
-			case CmResourceTypePort:
-				DbgPrint("\tDescriptors[%d] => Type=CmResourceTypePort,u.Port={Start=%x,Length=%x}\n",
-					ii,
-					AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Port.Start,
-					AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Port.Length
-					);
-				break;
-			case CmResourceTypeInterrupt:
-				if ((AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].Flags & CM_RESOURCE_INTERRUPT_MESSAGE) != 0) {
-					DbgPrint("\tDescriptors[%d] => Type=CmResourceTypeInterrupt,u.MessageInterrupt={Raw: MessageCount=%x,Vector=%x,Affinity=%x}\n",
-						ii,
-						AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.MessageInterrupt.Raw.MessageCount,
-						AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.MessageInterrupt.Raw.Vector,
-						AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.MessageInterrupt.Raw.Affinity
-						);
-					DbgPrint("\tDescriptors[%d] => Type=CmResourceTypeInterrupt,u.MessageInterrupt={Translated: Level=%x,Vector=%x,Affinity=%x}\n",
-						ii,
-						AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.MessageInterrupt.Translated.Level,
-						AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.MessageInterrupt.Translated.Vector,
-						AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.MessageInterrupt.Translated.Affinity
-						);
-				} else {
-					DbgPrint("\tDescriptors[%d] => Type=CmResourceTypeInterrupt,u.Interrupt={Level=%x,Vector=%x,Affinity=%x}\n",
-						ii,
-						AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Interrupt.Level,
-						AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Interrupt.Vector,
-						AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Interrupt.Affinity
-						);
-				}
-				break;
-			case CmResourceTypeMemory:
-				DbgPrint("\tDescriptors[%d] => Type=CmResourceTypeMemory,u.Memory={Start=%x,Length=%x}\n",
-					ii,
-					AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Memory.Start,
-					AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Memory.Length
-					);
-				memPhysAddress = AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Memory.Start;
-				memPhysLength = AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Memory.Length;
-				virtualAddress = MmMapIoSpace(memPhysAddress,
-					memPhysLength,
-					MmNonCached
-					);
-				break;
-			case CmResourceTypeMemoryLarge:
-				if ((AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].Flags & CM_RESOURCE_MEMORY_LARGE_40) != 0) {
-					DbgPrint("\tDescriptors[%d] => Type=CmResourceTypeMemory,u.Memory40={Start=%x,Length40=%x}\n",
-						ii,
-						AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Memory40.Start,
-						AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Memory40.Length40
-						);
-				} else if (
-					(AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].Flags & CM_RESOURCE_MEMORY_LARGE_48) != 0
-					) {
-					DbgPrint("\tDescriptors[%d] => Type=CmResourceTypeMemory,u.Memory48={Start=%x,Length48=%x}\n",
-						ii,
-						AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Memory48.Start,
-						AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Memory48.Length48
-						);
-				} else if (
-					(AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].Flags & CM_RESOURCE_MEMORY_LARGE_64) != 0
-					) {
-					DbgPrint("\tDescriptors[%d] => Type=CmResourceTypeMemory,u.Memory64={Start=%x,Length64=%x}\n",
-						ii,
-						AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Memory64.Start,
-						AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Memory64.Length64
-						);
-				}
-				break;
-			case CmResourceTypeDma:
-				DbgPrint("\tDescriptors[%d] => Type=CmResourceTypeDma,u.Dma={Channel=%x,Port=%x}\n",
-					ii,
-					AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Dma.Channel,
-					AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.Dma.Port
-					);
-				break;
-			case CmResourceTypeDevicePrivate:
-				DbgPrint("\tDescriptors[%d] => Type=CmResourceTypeDevicePrivate,u.DevicePrivate={%x,%x,%x}\n",
-					ii,
-					AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.DevicePrivate.Data[0],
-					AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.DevicePrivate.Data[1],
-					AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.DevicePrivate.Data[2]
-					);
-				break;
-			case CmResourceTypeBusNumber:
-				DbgPrint("\tDescriptors[%d] => Type=CmResourceTypeBusNumber,u.BusNumber={Start=%x,Length=%x}\n",
-					ii,
-					AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.BusNumber.Start,
-					AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.BusNumber.Length
-					);
-				break;
-			case CmResourceTypeDeviceSpecific:
-				DbgPrint("\tDescriptors[%d] => Type=CmResourceTypeDeviceSpecific,u.DeviceSpecificData{DataSize=%x}\n",
-					ii,
-					AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.DeviceSpecificData.DataSize
-					);
-				break;
-			case CmResourceTypePcCardConfig:
-				DbgPrint("\tDescriptors[%d] => Type=CmResourceTypePcCardConfig,u.DevicePrivate={%x,%x,%x}\n",
-					ii,
-					AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.DevicePrivate.Data[0],
-					AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.DevicePrivate.Data[1],
-					AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.DevicePrivate.Data[2]
-					);
-				break;
-			case CmResourceTypeMfCardConfig:
-				DbgPrint("\tDescriptors[%d] => Type=CmResourceTypeMfCardConfig,u.DevicePrivate={%x,%x,%x}\n",
-					ii,
-					AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.DevicePrivate.Data[0],
-					AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.DevicePrivate.Data[1],
-					AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].u.DevicePrivate.Data[2]
-					);
-				break;
-			default:
-				DbgPrint("\tDescriptors[%d] => Type=%x\n",
-					ii,
-					AllocatedResources->List[i].PartialResourceList.PartialDescriptors[ii].Type
-					);
-			}
-		}
-	}
+	DbgPrint("DispatchPnpStopDevice: enter\n");
 
-	if (virtualAddress != NULL) {
-		READ_REGISTER_BUFFER_ULONG((PULONG)(virtualAddress + E1000_STATUS),
-			&e1000Status,
-			1
-			);
-		DbgPrint("bus => %s\n",
-			(e1000Status & E1000_STATUS_PCIX_MODE) ? "PCIX" : "PCI"
-			);
-		if ((e1000Status & E1000_STATUS_PCIX_MODE) != 0) {
-			DbgPrint("speed => %x\n",
-				(e1000Status & E1000_STATUS_PCIX_SPEED)
-				);
-		} else {
-			DbgPrint("speed => %s\n",
-				(e1000Status & E1000_STATUS_PCI66) ? "66" : "33"
-				);
+	FreePciResource(deviceObject);
 
-		}
-		DbgPrint("width => %d\n",
-			(e1000Status & E1000_STATUS_BUS64) ? 64 : 32
-			);
-		InitNvmParam(virtualAddress);
-		ResetHardware(virtualAddress);
-		ReadMacAddr(virtualAddress);
-		MmUnmapIoSpace(virtualAddress, memPhysLength);
-	}
-	DbgPrint("AllocatePciResource: leave\n");
+	status = ForwardIrpAndWait(deviceExtension->nextDeviceObject, irp);
+
+	IoDetachDevice(deviceExtension->nextDeviceObject);
+	IoDeleteDevice(deviceObject);
+
+	IoCompleteRequest(irp, IO_NO_INCREMENT);
+	DbgPrint("DispatchPnpStopDevice: leave\n");
 	return status;
 }
 
+NTSTATUS
+DispatchPnp(
+	IN PDEVICE_OBJECT deviceObject,
+	IN PIRP irp)
+{
+	NTSTATUS status = STATUS_SUCCESS;
+	PIO_STACK_LOCATION irpSp = IoGetCurrentIrpStackLocation(irp);
+	PE100E_DEVICE_EXTENSION deviceExtension = (PE100E_DEVICE_EXTENSION)deviceObject->DeviceExtension;
 
+	DbgPrint("DispatchPnp: enter\n");
+
+	ASSERT(deviceExtension != NULL);
+
+	DbgPrint("DispatchPnp: MinorFunction=%x\n", irpSp->MinorFunction);
+	switch (irpSp->MinorFunction) {
+	case IRP_MN_START_DEVICE:
+		status = DispatchPnpStartDevice(deviceObject, irp);
+		DbgPrint("DispatchPnp: leave#1\n");
+		return status;
+	case IRP_MN_REMOVE_DEVICE:
+		status = DispatchPnpStopDevice(deviceObject, irp);
+		DbgPrint("DispatchPnp: leave#2\n");
+		return status;
+	default:
+		break;
+	}
+
+	IoSkipCurrentIrpStackLocation(irp);
+	DbgPrint("DispatchPnp: leave\n");
+	return IoCallDriver(deviceExtension->nextDeviceObject, irp);
+}
+
+NTSTATUS
+DispatchCreate(
+	IN PDEVICE_OBJECT DeviceObject,
+	IN PIRP Irp)
+{
+	DbgPrint("DispatchCreate: enter\n");
+
+	Irp->IoStatus.Status = STATUS_SUCCESS;
+	Irp->IoStatus.Information = 0;
+
+	IoCompleteRequest(Irp, IO_NO_INCREMENT);
+
+	DbgPrint("DispatchCreate: leave\n");
+	return STATUS_SUCCESS;
+}
+
+NTSTATUS
+DispatchClose(
+	IN PDEVICE_OBJECT DeviceObject,
+	IN PIRP Irp)
+{
+	DbgPrint("DispatchClose: enter\n");
+
+	Irp->IoStatus.Status = STATUS_SUCCESS;
+	Irp->IoStatus.Information = 0;
+
+	IoCompleteRequest(Irp, IO_NO_INCREMENT);
+
+	DbgPrint("DispatchClose: leave\n");
+	return STATUS_SUCCESS;
+}
+
+NTSTATUS
+DispatchShutdown(
+	IN PDEVICE_OBJECT DeviceObject,
+	IN PIRP Irp)
+{
+	DbgPrint("DispatchShutdown: enter\n");
+
+	Irp->IoStatus.Status = STATUS_SUCCESS;
+	Irp->IoStatus.Information = 0;
+
+	IoCompleteRequest(Irp, IO_NO_INCREMENT);
+
+	DbgPrint("DispatchShutdown: leave\n");
+	return STATUS_SUCCESS;
+}
+
+NTSTATUS
+DispatchDeviceControl(
+	IN PDEVICE_OBJECT DeviceObject,
+	IN PIRP Irp)
+{
+	NTSTATUS status = STATUS_NOT_SUPPORTED;
+	DbgPrint("DispatchDeviceControl: enter\n");
+
+	Irp->IoStatus.Status = status;
+	Irp->IoStatus.Information = 0;
+
+	IoCompleteRequest(Irp, IO_NO_INCREMENT);
+
+	DbgPrint("DispatchDeviceControl: leave\n");
+	return status;
+}
+
+NTSTATUS
+Dispatch(
+	IN PDEVICE_OBJECT DeviceObject,
+	IN PIRP Irp)
+{
+	NTSTATUS status = STATUS_NOT_SUPPORTED;
+	DbgPrint("Dispatch: enter\n");
+
+	Irp->IoStatus.Status = status;
+	Irp->IoStatus.Information = 0;
+
+	IoCompleteRequest(Irp, IO_NO_INCREMENT);
+
+	DbgPrint("Dispatch: leave\n");
+	return status;
+}
+
+#if 0
 ULONG delay_usec = 50;
 USHORT opcode_bits = 3;
 USHORT address_bits = 0;
@@ -845,217 +1230,4 @@ ReadMacAddr(
 	}
 	DbgPrint("\n");
 }
-
-NTSTATUS
-DriverEntry(
-	IN PDRIVER_OBJECT DriverObject,
-	IN PUNICODE_STRING RegistryPath)
-{
-	NTSTATUS status;
-
-	DbgPrint("DriverEntry: enter\n");
-
-	DriverObject->DriverUnload = Unload;
-	DriverObject->DriverExtension->AddDevice = AddDevice;
-	DriverObject->MajorFunction[IRP_MJ_PNP] = DispatchPnp;
-
-	DriverObject->MajorFunction[IRP_MJ_CREATE] = DispatchCreate;
-	DriverObject->MajorFunction[IRP_MJ_CLOSE] = DispatchClose;
-	DriverObject->MajorFunction[IRP_MJ_SHUTDOWN] = DispatchShutdown;
-	DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = DispatchDeviceControl;
-
-	DbgPrint("DriverEntry: leave\n");
-	return STATUS_SUCCESS;
-}
-
-
-NTSTATUS
-AddDevice(
-	IN PDRIVER_OBJECT DriverObject,
-	IN PDEVICE_OBJECT PhysicalDeviceObject)
-{
-	NTSTATUS status = STATUS_SUCCESS;
-	UNICODE_STRING devName;
-
-	DbgPrint("AddDevice: enter\n");
-
-	RtlInitUnicodeString(&devName, L"\\Device\\TestDriver");
-	status = IoCreateDevice(DriverObject,
-		0,
-		&devName, FILE_DEVICE_NAMED_PIPE,
-		0, FALSE,
-		&MyDeviceObject);
-	if (status != STATUS_SUCCESS) {
-		DbgPrint("AddDevice: leave#1\n");
-		goto done;
-	}
-	ASSERT(DeviceObject != NULL);
-
-	LowerDeviceObject = IoAttachDeviceToDeviceStack(MyDeviceObject,
-		PhysicalDeviceObject);
-	MyPhysicalDeviceObject = PhysicalDeviceObject;
-
-	DbgPrint("AddDevice: leave\n");
-done:
-	return status;
-}
-
-VOID
-Unload(
-	IN PDRIVER_OBJECT DriverObject)
-{
-	DbgPrint("Unload: enter\n");
-	if (LowerDeviceObject != NULL) {
-		IoDetachDevice(LowerDeviceObject);
-	}
-	if (MyDeviceObject != NULL) {
-		IoDeleteDevice(MyDeviceObject);
-	}
-	DbgPrint("Unload: leave\n");
-
-}
-
-NTSTATUS
-DispatchPnp(
-	IN PDEVICE_OBJECT DeviceObject,
-	IN PIRP Irp)
-{
-	NTSTATUS status = STATUS_SUCCESS;
-	PIO_STACK_LOCATION irpSp = IoGetCurrentIrpStackLocation(Irp);
-
-	DbgPrint("DispatchPnp: enter\n");
-
-	DbgPrint("DispatchPnp: MinorFunction=%x\n", irpSp->MinorFunction);
-	switch (irpSp->MinorFunction) {
-	case IRP_MN_START_DEVICE:
-		status = ForwardIrpAndWait(LowerDeviceObject, Irp);
-		if (status == STATUS_SUCCESS) {
-			IdentifyHardware(MyPhysicalDeviceObject);
-			AllocatePciResource(irpSp->Parameters.StartDevice.AllocatedResourcesTranslated);
-/*
-Command => 7
-VendorID => 8086
-DeviceID => 100e
-RevisionID => 2
-SubVendorID => 8086
-SubSystemID => 1e
-BaseAddresses[0] => val=f0820000,type=0
-	mem_type=0
-BaseAddresses[1] => val=0,type=0
-	mem_type=0
-BaseAddresses[2] => val=d061,type=1
-BaseAddresses[3] => val=0,type=0
-	mem_type=0
-BaseAddresses[4] => val=0,type=0
-	mem_type=0
-BaseAddresses[5] => val=0,type=0
-	mem_type=0
-BaseAddresses[6] => val=0,type=0
-	mem_type=0
-IdentifyHardware: leave
-AllocatedResources:
-AllocatePciResource: enter
-List[0] => InterfaceType=5,BusNumber=0,Version=1,Revision=1
-	Descriptors[0] => Type=CmResourceTypeMemory,u.Memory={Start=f0820000,Length=0}
-	Descriptors[1] => Type=CmResourceTypeDevicePrivate,u.DevicePrivate={1,0,0}
-	Descriptors[2] => Type=CmResourceTypePort,u.Port={Start=d060,Length=0}
-	Descriptors[3] => Type=CmResourceTypeDevicePrivate,u.DevicePrivate={1,2,0}
-	Descriptors[4] => Type=CmResourceTypeInterrupt,u.Interrupt={Level=9,Vector=9,Affinity=ffffffff}
-AllocatePciResource: leave
-AllocatedResourcesTranslated:
-AllocatePciResource: enter
-List[0] => InterfaceType=5,BusNumber=0,Version=1,Revision=1
-	Descriptors[0] => Type=CmResourceTypeMemory,u.Memory={Start=f0820000,Length=0}
-	Descriptors[1] => Type=CmResourceTypeDevicePrivate,u.DevicePrivate={1,0,0}
-	Descriptors[2] => Type=CmResourceTypePort,u.Port={Start=d060,Length=0}
-	Descriptors[3] => Type=CmResourceTypeDevicePrivate,u.DevicePrivate={1,2,0}
-	Descriptors[4] => Type=CmResourceTypeInterrupt,u.Interrupt={Level=12,Vector=39,Affinity=1}
-*/
-		}
-		IoCompleteRequest(Irp, IO_NO_INCREMENT);
-		DbgPrint("DispatchPnp: leave#1\n");
-		return status;
-	case IRP_MN_REMOVE_DEVICE:
-		status = ForwardIrpAndWait(LowerDeviceObject, Irp);
-
-		IoDetachDevice(LowerDeviceObject);
-		LowerDeviceObject = NULL;
-		IoDeleteDevice(MyDeviceObject);
-		MyDeviceObject = NULL;
-
-		IoCompleteRequest(Irp, IO_NO_INCREMENT);
-		DbgPrint("DispatchPnp: leave#2\n");
-		return status;
-	default:
-		break;
-	}
-
-	IoSkipCurrentIrpStackLocation(Irp);
-	DbgPrint("DispatchPnp: leave\n");
-	return IoCallDriver(LowerDeviceObject, Irp);
-}
-
-NTSTATUS
-DispatchCreate(
-	IN PDEVICE_OBJECT DeviceObject,
-	IN PIRP Irp)
-{
-	DbgPrint("DispatchCreate: enter\n");
-
-	Irp->IoStatus.Status = STATUS_SUCCESS;
-	Irp->IoStatus.Information = 0;
-
-	IoCompleteRequest(Irp, IO_NO_INCREMENT);
-
-	DbgPrint("DispatchCreate: leave\n");
-	return STATUS_SUCCESS;
-}
-
-NTSTATUS
-DispatchClose(
-	IN PDEVICE_OBJECT DeviceObject,
-	IN PIRP Irp)
-{
-	DbgPrint("DispatchClose: enter\n");
-
-	Irp->IoStatus.Status = STATUS_SUCCESS;
-	Irp->IoStatus.Information = 0;
-
-	IoCompleteRequest(Irp, IO_NO_INCREMENT);
-
-	DbgPrint("DispatchClose: leave\n");
-	return STATUS_SUCCESS;
-}
-
-NTSTATUS
-DispatchShutdown(
-	IN PDEVICE_OBJECT DeviceObject,
-	IN PIRP Irp)
-{
-	DbgPrint("DispatchShutdown: enter\n");
-
-	Irp->IoStatus.Status = STATUS_SUCCESS;
-	Irp->IoStatus.Information = 0;
-
-	IoCompleteRequest(Irp, IO_NO_INCREMENT);
-
-	DbgPrint("DispatchShutdown: leave\n");
-	return STATUS_SUCCESS;
-}
-
-NTSTATUS
-DispatchDeviceControl(
-	IN PDEVICE_OBJECT DeviceObject,
-	IN PIRP Irp)
-{
-	NTSTATUS status = STATUS_NOT_SUPPORTED;
-	DbgPrint("DispatchDeviceControl: enter\n");
-
-	Irp->IoStatus.Status = status;
-	Irp->IoStatus.Information = 0;
-
-	IoCompleteRequest(Irp, IO_NO_INCREMENT);
-
-	DbgPrint("DispatchDeviceControl: leave\n");
-	return status;
-}
+#endif

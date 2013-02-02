@@ -1,6 +1,6 @@
 /******************************************************************************
 
-  Copyright (c) 2001-2012, Intel Corporation 
+  Copyright (c) 2001-2011, Intel Corporation 
   All rights reserved.
   
   Redistribution and use in source and binary forms, with or without 
@@ -30,7 +30,7 @@
   POSSIBILITY OF SUCH DAMAGE.
 
 ******************************************************************************/
-/*$FreeBSD$*/
+/*$FreeBSD:$*/
 
 #ifndef _E1000_HW_H_
 #define _E1000_HW_H_
@@ -41,7 +41,9 @@
 
 struct e1000_hw;
 
+#ifndef NO_82542_SUPPORT
 #define E1000_DEV_ID_82542			0x1000
+#endif
 #define E1000_DEV_ID_82543GC_FIBER		0x1001
 #define E1000_DEV_ID_82543GC_COPPER		0x1004
 #define E1000_DEV_ID_82544EI_COPPER		0x1008
@@ -130,41 +132,6 @@ struct e1000_hw;
 #define E1000_DEV_ID_PCH_D_HV_DC		0x10F0
 #define E1000_DEV_ID_PCH2_LV_LM			0x1502
 #define E1000_DEV_ID_PCH2_LV_V			0x1503
-#define E1000_DEV_ID_82576			0x10C9
-#define E1000_DEV_ID_82576_FIBER		0x10E6
-#define E1000_DEV_ID_82576_SERDES		0x10E7
-#define E1000_DEV_ID_82576_QUAD_COPPER		0x10E8
-#define E1000_DEV_ID_82576_QUAD_COPPER_ET2	0x1526
-#define E1000_DEV_ID_82576_NS			0x150A
-#define E1000_DEV_ID_82576_NS_SERDES		0x1518
-#define E1000_DEV_ID_82576_SERDES_QUAD		0x150D
-#define E1000_DEV_ID_82576_VF			0x10CA
-#define E1000_DEV_ID_I350_VF			0x1520
-#define E1000_DEV_ID_82575EB_COPPER		0x10A7
-#define E1000_DEV_ID_82575EB_FIBER_SERDES	0x10A9
-#define E1000_DEV_ID_82575GB_QUAD_COPPER	0x10D6
-#define E1000_DEV_ID_82580_COPPER		0x150E
-#define E1000_DEV_ID_82580_FIBER		0x150F
-#define E1000_DEV_ID_82580_SERDES		0x1510
-#define E1000_DEV_ID_82580_SGMII		0x1511
-#define E1000_DEV_ID_82580_COPPER_DUAL		0x1516
-#define E1000_DEV_ID_82580_QUAD_FIBER		0x1527
-#define E1000_DEV_ID_I350_COPPER		0x1521
-#define E1000_DEV_ID_I350_FIBER			0x1522
-#define E1000_DEV_ID_I350_SERDES		0x1523
-#define E1000_DEV_ID_I350_SGMII			0x1524
-#define E1000_DEV_ID_I350_DA4			0x1546
-#define E1000_DEV_ID_I210_COPPER		0x1533
-#define E1000_DEV_ID_I210_COPPER_OEM1		0x1534
-#define E1000_DEV_ID_I210_COPPER_IT		0x1535
-#define E1000_DEV_ID_I210_FIBER			0x1536
-#define E1000_DEV_ID_I210_SERDES		0x1537
-#define E1000_DEV_ID_I210_SGMII			0x1538
-#define E1000_DEV_ID_I211_COPPER		0x1539
-#define E1000_DEV_ID_DH89XXCC_SGMII		0x0438
-#define E1000_DEV_ID_DH89XXCC_SERDES		0x043A
-#define E1000_DEV_ID_DH89XXCC_BACKPLANE		0x043C
-#define E1000_DEV_ID_DH89XXCC_SFP		0x0440
 #define E1000_REVISION_0	0
 #define E1000_REVISION_1	1
 #define E1000_REVISION_2	2
@@ -173,17 +140,15 @@ struct e1000_hw;
 
 #define E1000_FUNC_0		0
 #define E1000_FUNC_1		1
-#define E1000_FUNC_2		2
-#define E1000_FUNC_3		3
 
 #define E1000_ALT_MAC_ADDRESS_OFFSET_LAN0	0
 #define E1000_ALT_MAC_ADDRESS_OFFSET_LAN1	3
-#define E1000_ALT_MAC_ADDRESS_OFFSET_LAN2	6
-#define E1000_ALT_MAC_ADDRESS_OFFSET_LAN3	9
 
 enum e1000_mac_type {
 	e1000_undefined = 0,
+#ifndef NO_82542_SUPPORT
 	e1000_82542,
+#endif
 	e1000_82543,
 	e1000_82544,
 	e1000_82540,
@@ -206,14 +171,6 @@ enum e1000_mac_type {
 	e1000_ich10lan,
 	e1000_pchlan,
 	e1000_pch2lan,
-	e1000_82575,
-	e1000_82576,
-	e1000_82580,
-	e1000_i350,
-	e1000_i210,
-	e1000_i211,
-	e1000_vfadapt,
-	e1000_vfadapt_i350,
 	e1000_num_macs  /* List is 1-based, so subtract 1 for TRUE count. */
 };
 
@@ -255,9 +212,6 @@ enum e1000_phy_type {
 	e1000_phy_82578,
 	e1000_phy_82577,
 	e1000_phy_82579,
-	e1000_phy_82580,
-	e1000_phy_vf,
-	e1000_phy_i210,
 };
 
 enum e1000_bus_type {
@@ -562,43 +516,8 @@ struct e1000_hw_stats {
 	u64 scvpc;
 	u64 hrmpc;
 	u64 doosync;
-	u64 o2bgptc;
-	u64 o2bspc;
-	u64 b2ospc;
-	u64 b2ogprc;
 };
 
-struct e1000_vf_stats {
-	u64 base_gprc;
-	u64 base_gptc;
-	u64 base_gorc;
-	u64 base_gotc;
-	u64 base_mprc;
-	u64 base_gotlbc;
-	u64 base_gptlbc;
-	u64 base_gorlbc;
-	u64 base_gprlbc;
-
-	u32 last_gprc;
-	u32 last_gptc;
-	u32 last_gorc;
-	u32 last_gotc;
-	u32 last_mprc;
-	u32 last_gotlbc;
-	u32 last_gptlbc;
-	u32 last_gorlbc;
-	u32 last_gprlbc;
-
-	u64 gprc;
-	u64 gptc;
-	u64 gorc;
-	u64 gotc;
-	u64 mprc;
-	u64 gotlbc;
-	u64 gptlbc;
-	u64 gorlbc;
-	u64 gprlbc;
-};
 
 struct e1000_phy_stats {
 	u32 idle_errors;
@@ -649,7 +568,6 @@ struct e1000_host_mng_command_info {
 #include "e1000_phy.h"
 #include "e1000_nvm.h"
 #include "e1000_manage.h"
-#include "e1000_mbx.h"
 
 struct e1000_mac_operations {
 	/* Function pointers for the MAC. */
@@ -669,8 +587,6 @@ struct e1000_mac_operations {
 	void (*update_mc_addr_list)(struct e1000_hw *, u8 *, u32);
 	s32  (*reset_hw)(struct e1000_hw *);
 	s32  (*init_hw)(struct e1000_hw *);
-	void (*shutdown_serdes)(struct e1000_hw *);
-	void (*power_up_serdes)(struct e1000_hw *);
 	s32  (*setup_link)(struct e1000_hw *);
 	s32  (*setup_physical_interface)(struct e1000_hw *);
 	s32  (*setup_led)(struct e1000_hw *);
@@ -727,8 +643,6 @@ struct e1000_phy_operations {
 	s32  (*write_reg_page)(struct e1000_hw *, u32, u16);
 	void (*power_up)(struct e1000_hw *);
 	void (*power_down)(struct e1000_hw *);
-	s32 (*read_i2c_byte)(struct e1000_hw *, u8, u8, u8 *);
-	s32 (*write_i2c_byte)(struct e1000_hw *, u8, u8, u8);
 };
 
 struct e1000_nvm_operations {
@@ -764,7 +678,6 @@ struct e1000_mac_info {
 	u16 ifs_ratio;
 	u16 ifs_step_size;
 	u16 mta_reg_count;
-	u16 uta_reg_count;
 
 	/* Maximum size of the MTA register table in all supported adapters */
 	#define MAX_MTA_REG 128
@@ -781,7 +694,9 @@ struct e1000_mac_info {
 	bool autoneg_failed;
 	bool get_link_status;
 	bool in_ifs_mode;
+#ifndef NO_82542_SUPPORT
 	bool report_tx_early;
+#endif
 	enum e1000_serdes_link_state serdes_link_state;
 	bool serdes_has_link;
 	bool tx_pkt_filtering;
@@ -855,34 +770,6 @@ struct e1000_fc_info {
 	enum e1000_fc_mode requested_mode;  /* FC mode requested by caller */
 };
 
-struct e1000_mbx_operations {
-	s32 (*init_params)(struct e1000_hw *hw);
-	s32 (*read)(struct e1000_hw *, u32 *, u16,  u16);
-	s32 (*write)(struct e1000_hw *, u32 *, u16, u16);
-	s32 (*read_posted)(struct e1000_hw *, u32 *, u16,  u16);
-	s32 (*write_posted)(struct e1000_hw *, u32 *, u16, u16);
-	s32 (*check_for_msg)(struct e1000_hw *, u16);
-	s32 (*check_for_ack)(struct e1000_hw *, u16);
-	s32 (*check_for_rst)(struct e1000_hw *, u16);
-};
-
-struct e1000_mbx_stats {
-	u32 msgs_tx;
-	u32 msgs_rx;
-
-	u32 acks;
-	u32 reqs;
-	u32 rsts;
-};
-
-struct e1000_mbx_info {
-	struct e1000_mbx_operations ops;
-	struct e1000_mbx_stats stats;
-	u32 timeout;
-	u32 usec_delay;
-	u16 size;
-};
-
 struct e1000_dev_spec_82541 {
 	enum e1000_dsp_config dsp_config;
 	enum e1000_ffe_config ffe_config;
@@ -890,21 +777,25 @@ struct e1000_dev_spec_82541 {
 	bool phy_init_script;
 };
 
+#ifndef NO_82542_SUPPORT
 struct e1000_dev_spec_82542 {
 	bool dma_fairness;
 };
 
+#endif /* NO_82542_SUPPORT */
 struct e1000_dev_spec_82543 {
 	u32  tbi_compatibility;
 	bool dma_fairness;
 	bool init_phy_disabled;
 };
 
+#if 0
 struct e1000_dev_spec_82571 {
 	bool laa_is_present;
 	u32 smb_counter;
 	E1000_MUTEX swflag_mutex;
 };
+#endif
 
 struct e1000_dev_spec_80003es2lan {
 	bool  mdic_wa_enable;
@@ -917,6 +808,7 @@ struct e1000_shadow_ram {
 
 #define E1000_SHADOW_RAM_WORDS  2048
 
+#if 0
 struct e1000_dev_spec_ich8lan {
 	bool kmrn_lock_loss_workaround_enabled;
 	struct e1000_shadow_ram shadow_ram[E1000_SHADOW_RAM_WORDS];
@@ -925,19 +817,7 @@ struct e1000_dev_spec_ich8lan {
 	bool nvm_k1_enabled;
 	bool eee_disable;
 };
-
-struct e1000_dev_spec_82575 {
-	bool sgmii_active;
-	bool global_device_reset;
-	bool eee_disable;
-	bool module_plugged;
-	u32 mtu;
-};
-
-struct e1000_dev_spec_vf {
-	u32 vf_number;
-	u32 v2p_mailbox;
-};
+#endif
 
 struct e1000_hw {
 	void *back;
@@ -951,18 +831,21 @@ struct e1000_hw {
 	struct e1000_phy_info  phy;
 	struct e1000_nvm_info  nvm;
 	struct e1000_bus_info  bus;
-	struct e1000_mbx_info mbx;
 	struct e1000_host_mng_dhcp_cookie mng_cookie;
 
 	union {
+#if 0
 		struct e1000_dev_spec_82541 _82541;
+#ifndef NO_82542_SUPPORT
 		struct e1000_dev_spec_82542 _82542;
+#endif
+#endif
 		struct e1000_dev_spec_82543 _82543;
+#if 0
 		struct e1000_dev_spec_82571 _82571;
 		struct e1000_dev_spec_80003es2lan _80003es2lan;
 		struct e1000_dev_spec_ich8lan ich8lan;
-		struct e1000_dev_spec_82575 _82575;
-		struct e1000_dev_spec_vf vf;
+#endif
 	} dev_spec;
 
 	u16 device_id;
@@ -975,17 +858,19 @@ struct e1000_hw {
 
 #if 0
 #include "e1000_82541.h"
+#endif
 #include "e1000_82543.h"
+#if 0
 #include "e1000_82571.h"
 #include "e1000_80003es2lan.h"
-#include "e1000_ich8lan.h"
-#include "e1000_82575.h"
-#include "e1000_i210.h"
 #endif
+#include "e1000_ich8lan.h"
 
 /* These functions must be implemented by drivers */
+#ifndef NO_82542_SUPPORT
 void e1000_pci_clear_mwi(struct e1000_hw *hw);
 void e1000_pci_set_mwi(struct e1000_hw *hw);
+#endif
 s32  e1000_read_pcie_cap_reg(struct e1000_hw *hw, u32 reg, u16 *value);
 s32  e1000_write_pcie_cap_reg(struct e1000_hw *hw, u32 reg, u16 *value);
 void e1000_read_pci_cfg(struct e1000_hw *hw, u32 reg, u16 *value);
