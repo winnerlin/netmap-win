@@ -1,0 +1,40 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="e1000_mac.c" />
+    <ClCompile Include="e1000_nvm.c" />
+    <ClCompile Include="e1000_phy.c" />
+    <ClCompile Include="main.c" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="e1000_defines.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="e1000_hw.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="e1000_manage.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="e1000_api.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="e1000_osdep.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="e1000_phy.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="e1000_regs.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="e100e.h">
+      <Filter>include</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="include">
+      <UniqueIdentifier>{920b04fc-8c42-47ee-8155-91e10d65702a}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>
