@@ -1,6 +1,6 @@
 /******************************************************************************
 
-  Copyright (c) 2001-2010, Intel Corporation 
+  Copyright (c) 2001-2011, Intel Corporation 
   All rights reserved.
   
   Redistribution and use in source and binary forms, with or without 
@@ -30,7 +30,8 @@
   POSSIBILITY OF SUCH DAMAGE.
 
 ******************************************************************************/
-/*$FreeBSD$*/
+/*$FreeBSD:$*/
+
 
 #ifndef _FREEBSD_OS_H_
 #define _FREEBSD_OS_H_
@@ -55,6 +56,9 @@
 #include <machine/clock.h>
 #include <dev/pci/pcivar.h>
 #include <dev/pci/pcireg.h>
+#else
+#include <ntifs.h>
+#include <wdm.h>
 #endif
 
 #if !defined(__Windows__)
@@ -64,30 +68,30 @@
 #define msec_delay(x) DELAY(1000*(x))
 #define msec_delay_irq(x) DELAY(1000*(x))
 #else
-#define usec_delay(x)
-#define msec_delay(x)
-#define msec_delay_irq(x)
+#define usec_delay(x) KeStallExecutionProcessor(x)
+#define msec_delay(x) KeStallExecutionProcessor(1000*(x))
+#define msec_delay_irq(x) KeStallExecutionProcessor(1000*(x))
 #endif
 
-#if !defined(__Windows__)
-#define MSGOUT(S, A, B)     printf(S "\n", A, B)
-#else
-#define MSGOUT(S, A, B)     DbgPrint(S "\n", A, B)
-#endif
+/* Defines to make shared code happy, not really used */
 #define DEBUGFUNC(F)        DEBUGOUT(F);
-#define DEBUGOUT(S)			do {} while (0)
-#define DEBUGOUT1(S,A)			do {} while (0)
-#define DEBUGOUT2(S,A,B)		do {} while (0)
-#define DEBUGOUT3(S,A,B,C)		do {} while (0)
-#define DEBUGOUT7(S,A,B,C,D,E,F,G)	do {} while (0)
+#if !defined(__Windows__)
+#define DEBUGOUT(S)			if (0) printf(S);
+#define DEBUGOUT1(S,A)			if (0) printf(S,A);
+#define DEBUGOUT2(S,A,B)		if (0) printf(S,A,B);
+#define DEBUGOUT3(S,A,B,C)		if (0) printf(S,A,B,C);
+#else
+#define DEBUGOUT(S)			if (0) DbgPrint(S);
+#define DEBUGOUT1(S,A)			if (0) DbgPrint(S,A);
+#define DEBUGOUT2(S,A,B)		if (0) DbgPrint(S,A,B);
+#define DEBUGOUT3(S,A,B,C)		if (0) DbgPrint(S,A,B,C);
+#endif
 
 #define STATIC			static
 #define FALSE			0
+#define false			FALSE 
 #define TRUE			1
-#ifndef __bool_true_false_are_defined
-#define false			FALSE
 #define true			TRUE
-#endif
 #define CMD_MEM_WRT_INVALIDATE	0x0010  /* BIT_4 */
 #define PCI_COMMAND_REGISTER	PCIR_COMMAND
 
@@ -96,7 +100,7 @@
 #define E1000_MUTEX                     struct mtx
 #define E1000_MUTEX_INIT(mutex)         mtx_init((mutex), #mutex, \
                                             MTX_NETWORK_LOCK, \
-                                            MTX_DEF | MTX_DUPOK)
+					    MTX_DEF | MTX_DUPOK)
 #define E1000_MUTEX_DESTROY(mutex)      mtx_destroy(mutex)
 #define E1000_MUTEX_LOCK(mutex)         mtx_lock(mutex)
 #define E1000_MUTEX_TRYLOCK(mutex)      mtx_trylock(mutex)
@@ -112,9 +116,7 @@ typedef int64_t		s64;
 typedef int32_t		s32;
 typedef int16_t		s16;
 typedef int8_t		s8;
-#ifndef __bool_true_false_are_defined
 typedef boolean_t	bool;
-#endif
 
 #define __le16		u16
 #define __le32		u32
@@ -134,7 +136,6 @@ typedef int					bool;
 #define __le32		u32
 #define __le64		u64
 #endif
-
 #if !defined(__Windows__)
 #if __FreeBSD_version < 800000 /* Now in HEAD */
 #if defined(__i386__) || defined(__amd64__)
@@ -152,7 +153,6 @@ typedef int					bool;
 #define rmb()
 #define wmb()
 #endif
-
 #if !defined(__Windows__)
 #if defined(__i386__) || defined(__amd64__)
 static __inline
@@ -166,7 +166,6 @@ void prefetch(void *x)
 #else
 #define prefetch(x)
 #endif
-
 struct e1000_osdep
 {
 #if !defined(__Windows__)
@@ -178,8 +177,15 @@ struct e1000_osdep
 	bus_space_handle_t flash_bus_space_handle;
 	struct device     *dev;
 #else
-
+	PUCHAR	mem_bus_virtual;
+	PHYSICAL_ADDRESS mem_bus_physical;
+	SIZE_T mem_bus_length;
+	PUCHAR	io_bus_space_tag;
+	PDEVICE_OBJECT dev;
+#endif
 };
+
+#if !defined(__Windows__)
 
 #define E1000_REGISTER(hw, reg) (((hw)->mac.type >= e1000_82543) \
     ? reg : e1000_translate_register_82542(reg))
@@ -259,5 +265,49 @@ struct e1000_osdep
 #define E1000_WRITE_FLASH_REG16(hw, reg, value) \
     bus_space_write_2(((struct e1000_osdep *)(hw)->back)->flash_bus_space_tag, \
         ((struct e1000_osdep *)(hw)->back)->flash_bus_space_handle, reg, value)
+#else
+u32 pci_read_config(PDEVICE_OBJECT, int, int width);
+void pci_write_config(PDEVICE_OBJECT, int, u32, int);
+int pci_find_extcap(PDEVICE_OBJECT, int, int *);
+
+#define E1000_READ_REG(hw, reg) \
+	READ_REGISTER_ULONG((PULONG)(((struct e1000_osdep *)(hw)->back)->mem_bus_virtual + reg))
+
+#define E1000_WRITE_REG(hw, reg, value) \
+	WRITE_REGISTER_ULONG((PULONG)(((struct e1000_osdep *)(hw)->back)->mem_bus_virtual + reg), \
+		value)
+
+#define E1000_WRITE_FLUSH(a) E1000_READ_REG(a, E1000_STATUS)
+
+#define E1000_READ_REG_ARRAY(hw, reg, index) \
+	READ_REGISTER_ULONG((PULONG)(((struct e1000_osdep *)(hw)->back)->mem_bus_virtual + reg + ((index)<< 2)))
+
+#define E1000_READ_REG_ARRAY_DWORD E1000_READ_REG_ARRAY
+#define E1000_WRITE_REG_ARRAY_DWORD E1000_WRITE_REG_ARRAY
+
+#define E1000_WRITE_REG_ARRAY(hw, reg, index, value) \
+	WRITE_REGISTER_ULONG((PULONG)(((struct e1000_osdep *)(hw)->back)->mem_bus_virtual + reg + ((index)<< 2)), \
+		value)
+
+#define E1000_WRITE_REG_IO(hw, reg, value) do {\
+	WRITE_PORT_ULONG((PULONG)(((struct e1000_osdep *)(hw)->back)->io_bus_space_tag), \
+		reg); \
+	WRITE_PORT_ULONG((PULONG)(((struct e1000_osdep *)(hw)->back)->io_bus_space_tag + 4), \
+		value); \
+	} while (0)
+
+#define E1000_READ_FLASH_REG(hw, reg) \
+	READ_REGISTER_ULONG((PULONG)(((struct e1000_osdep *)(hw)->back)->flash_bus_space_tag + reg))
+
+#define E1000_READ_FLASH_REG16(hw, reg) \
+	READ_REGISTER_USHORT((PUSHORT)(((struct e1000_osdep *)(hw)->back)->flash_bus_space_tag + reg))
+
+#define E1000_WRITE_FLASH_REG(hw, reg, value) \
+	WRITE_REGISTER_ULONG((PULONG)(((struct e1000_osdep *)(hw)->back)->flash_bus_space_tag + reg), value)
+
+#define E1000_WRITE_FLASH_REG16(hw, reg, value) \
+	WRITE_REGISTER_USHORT((PUSHORT)(((struct e1000_osdep *)(hw)->back)->flash_bus_space_tag + reg), value)
+#endif
 
 #endif  /* _FREEBSD_OS_H_ */
+
