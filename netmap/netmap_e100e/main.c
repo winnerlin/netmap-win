@@ -168,6 +168,10 @@ IdentifyHardware(
 	return status;
 }
 
+VOID InitNvmParam(IN PUCHAR);
+VOID ResetHardware(IN PUCHAR);
+VOID ReadMacAddr(IN PUCHAR);
+
 // http://msdn.microsoft.com/en-us/library/windows/hardware/ff554399(v=vs.85).aspx
 NTSTATUS
 AllocatePciResource(
@@ -332,6 +336,9 @@ AllocatePciResource(
 		DbgPrint("width => %d\n",
 			(e1000Status & E1000_STATUS_BUS64) ? 64 : 32
 			);
+		InitNvmParam(virtualAddress);
+		ResetHardware(virtualAddress);
+		ReadMacAddr(virtualAddress);
 		MmUnmapIoSpace(virtualAddress, memPhysLength);
 	}
 	DbgPrint("AllocatePciResource: leave\n");
@@ -359,7 +366,7 @@ RaiseEECClock(
 		1
 		);
 	READ_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_STATUS),
-		eecd,
+		&val,
 		1
 		);
 	KeStallExecutionProcessor(50);
@@ -381,7 +388,7 @@ LowerEECClock(
 		1
 		);
 	READ_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_STATUS),
-		eecd,
+		&val,
 		1
 		);
 	KeStallExecutionProcessor(50);
@@ -397,6 +404,7 @@ ShiftOutEEC(
 {
 	ULONG eecd;
 	ULONG mask;
+	ULONG val;
 
 	DbgPrint("ShiftOutEEC: enter\n");
 
@@ -417,7 +425,7 @@ ShiftOutEEC(
 			1
 			);
 		READ_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_STATUS),
-			&eecd,
+			&val,
 			1
 			);
 		KeStallExecutionProcessor(50);
@@ -514,12 +522,35 @@ InitNvmParam(
 		&eecd,
 		1
 		);
+/*
+ * EEPROM Size
+ * 0b = 1024-bit (64 word) NM93C46 compatible EEPROM
+ * 1b = 4096-bit (256 word) NM93C66 compatible EEPROM
+ * This bit indicates the EEPROM size, based on acknowledges seen
+ * during EEPROM scans of different addresses. This bit is read-only.
+ * Note: This is a reserved bit for the 82541xx and 82547GI/EI
+ */
 	address_bits = (eecd & E1000_EECD_SIZE) != 0 ? 8 : 6;
 	word_size = (eecd & E1000_EECD_SIZE) != 0 ? 256 : 64;
 
+	DbgPrint("address_bits=%u, word_size=%u\n", address_bits, word_size);
+	address_bits = 6;
+	word_size = 64;
 	DbgPrint("InitNvmParam: leave\n");
 }
 
+/*
+ * To directly access the EEPROM, software should follow these steps:
+ * ==> in AcquireNvm()
+ *  1. Write a 1b to the EEPROM Request bit (EEC.EE_REQ).
+ *  2. Read the EEPROM Grant bit (EEC.EE_GNT) until it becomes 1b. It remains 0b as long as the
+ *     hardware is accessing the EEPROM. 
+ * <== 
+ *  3. Write or read the EEPROM using the direct access to the 4-wire interface as defined in the
+ *     EEPROM/FLASH Control & Data Register (EEC). The exact protocol used depends on the
+ *     EEPROM placed on the board and can be found in the appropriate data sheet.
+ *  4. Write a 0b to the EEPROM Request bit (EEC.EE_REQ).
+ */
 NTSTATUS
 AcquireNvm(
 	IN PUCHAR Register0
@@ -567,6 +598,7 @@ AcquireNvm(
 	return STATUS_SUCCESS;
 }
 
+/* Microwire EEPROM in the case of 82543 */
 NTSTATUS
 PrepareNvm(
 	IN PUCHAR Register0)
@@ -670,11 +702,13 @@ ReadNvm(
 	UCHAR readOpcode = NVM_READ_OPCODE_MICROWIRE;
 
 	DbgPrint("ReadNvm: enter\n");
+	DbgPrint("ReadNvm: offset=%u, words=%u\n", offset, words);
 
 	AcquireNvm(Register0);
 	PrepareNvm(Register0);
 
 	for (i = 0; i < words; i++) {
+		/* opcode_bits = 3 implies that width of readOpcode is 3bit?*/
 		ShiftOutEEC(Register0,
 			readOpcode,
 			opcode_bits
@@ -690,6 +724,126 @@ ReadNvm(
 
 	DbgPrint("ReadNvm: leave\n");
 	return STATUS_SUCCESS;
+}
+
+VOID
+ReloadNvm(
+	IN PUCHAR Register0
+	)
+{
+	ULONG val = 0;
+
+	KeStallExecutionProcessor(10);
+
+/* This register and the Device Control register (CTRL) controls the major operational modes for the
+ * Ethernet controller. CTRL_EXT provides extended control of the Ethernet controller functionality
+ * over the Device Control register (CTRL).
+ */
+	READ_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_CTRL_EXT),
+		&val,
+		1
+		);
+	val |= E1000_CTRL_EXT_EE_RST;
+	WRITE_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_CTRL_EXT),
+		&val,
+		1
+		);
+	READ_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_STATUS),
+		&val,
+		1
+		);
+}
+
+VOID
+ResetHardware(
+	IN PUCHAR Register0
+	)
+{
+	unsigned long val = 0;
+
+	/* Masking off all interrupts */
+	val = 0xffffffff;
+/* Software blocks interrupts by clearing the corresponding mask bit. This is accomplished by writing
+ * a 1b to the corresponding bit in this register. Bits written with 0b are unchanged (their mask status
+ * does not change).
+ */
+	WRITE_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_IMC),
+		&val,
+		1
+		);
+
+	val = 0;
+/* This register controls all Ethernet controller receiver functions. */
+	WRITE_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_RCTL),
+		&val,
+		1
+		);
+	val = E1000_TCTL_PSP;
+/* This register controls all transmit functions for the Ethernet controller.*/
+	WRITE_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_TCTL),
+		&val,
+		1
+		);
+
+	READ_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_STATUS),
+		&val,
+		1
+		);
+
+	KeStallExecutionProcessor(10);
+
+	READ_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_CTRL),
+		&val,
+		1
+		);
+	val |= E1000_CTRL_RST;
+	WRITE_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_CTRL),
+		&val,
+		1
+		);
+
+	ReloadNvm(Register0);
+	KeStallExecutionProcessor(2);
+
+	val = 0xffffffff;
+	WRITE_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_IMC),
+		&val,
+		1
+		);
+/* All register bits are cleared upon read. As a result, reading this register implicitly acknowledges
+ * any pending interrupt events. Writing a 1b to any bit in the register also clears that bit. Writing a 0b
+ * to any bit has no effect on that bit.
+ */
+	READ_REGISTER_BUFFER_ULONG((PULONG)(Register0 + E1000_ICR),
+		&val,
+		1
+		);
+}
+
+VOID
+ReadMacAddr(
+	IN PUCHAR Register0
+	)
+{
+	int i;
+	unsigned short offset, nvm_data;
+
+/* Ethernet Address (Words 00h-02h)
+ * The Ethernet Individual Address (IA) is a six-byte field that must be unique for each Ethernet port
+ * (and unique for each copy of the EEPROM image). The first three bytes are vendor specific. The
+ * value from this field is loaded into the Receive Address Register 0 (RAL0/RAH0). For a MAC
+ * address of 12-34-56-78-90-AB, words 2:0 load as follows (note that these words are byteswapped):
+ * Word 0 = 3412
+ * Word 1 = 7856
+ * Word 2 - AB90
+ */
+	DbgPrint("MacAddr =>");
+	for (i = 0; i < ETH_ADDR_LEN; i += 2) {
+		offset = i >> 1;
+		ReadNvm(Register0, offset, 1, &nvm_data);
+		DbgPrint(" %02x %02x", nvm_data & 0xFF, (nvm_data >> 8));
+	}
+	DbgPrint("\n");
 }
 
 NTSTATUS
