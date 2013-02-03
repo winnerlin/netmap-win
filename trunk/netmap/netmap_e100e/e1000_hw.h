@@ -858,9 +858,7 @@ struct e1000_hw {
 
 #if 0
 #include "e1000_82541.h"
-#endif
 #include "e1000_82543.h"
-#if 0
 #include "e1000_82571.h"
 #include "e1000_80003es2lan.h"
 #endif
